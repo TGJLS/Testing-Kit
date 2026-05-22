@@ -662,6 +662,14 @@ def main():
                     results.append({"task": task, "status": "timed-out", "result": None})
                 continue
 
+            capture_spec = task.get("capture")
+            if capture_spec:
+                actual = result.get("a_text", "") + result.get("a_message", "")
+                for var_name, pattern in capture_spec.items():
+                    m = re.search(pattern, actual)
+                    if m:
+                        variables[var_name] = m.group(1)
+
             if result.get("a_msg_type") == 6:
                 passed = False
             else:
