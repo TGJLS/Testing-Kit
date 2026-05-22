@@ -620,6 +620,8 @@ def main():
     try:
         for i, task in enumerate(tasks, 1):
             cmdline = task["cmdline"]
+            for key, val in variables.items():
+                cmdline = cmdline.replace("{{" + key + "}}", val)
             expected = task.get("expected", "")
             allowed_fail = task.get("allowed_to_fail", False)
 
