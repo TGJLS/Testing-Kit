@@ -163,7 +163,10 @@ def _generate_agent_from_profile(base_url, headers, profile, output_path):
     if not data.get("ok"):
         die(f"Failed to generate agent: {data.get('message', '')}")
 
-    name_b64, content_b64 = data["message"].split(":", 1)
+    msg = data.get("message", "")
+    if not msg:
+        die("Agent generation succeeded but response contained no payload")
+    name_b64, content_b64 = msg.split(":", 1)
     filename = base64.b64decode(name_b64).decode()
     payload = base64.b64decode(content_b64)
 
@@ -294,9 +297,10 @@ def ssh_start_agent(client, agent_path):
     # close the SSH session after tasks complete.  -WindowStyle Hidden was tried
     # first but fails silently on Windows Server 2022 SSH sessions (the process
     # shows as exited within 2s despite the port being reachable).
+    safe_path = agent_path.replace("'", "''")
     cmd = (
         f"powershell -Command \""
-        f"Start-Process -FilePath '{agent_path}' -NoNewWindow; "
+        f"Start-Process -FilePath '{safe_path}' -NoNewWindow; "
         f"while($true) {{ Start-Sleep -Seconds 60 }}"
         f"\""
     )
@@ -381,8 +385,9 @@ def ssh_deliver(base_url, headers, ssh_cfg):
     console.print("[dim]Agent process started — waiting for check-in ...[/dim]")
 
     time.sleep(2)
+    exe_stem = os.path.splitext(os.path.basename(agent_path))[0]
     _, chk_out, _ = client.exec_command(
-        "powershell -Command \"if (Get-Process -Name agent -ErrorAction SilentlyContinue) { 'alive' } else { 'exited' }\""
+        f"powershell -Command \"if (Get-Process -Name '{exe_stem}' -ErrorAction SilentlyContinue) {{ 'alive' }} else {{ 'exited' }}\""
     )
     status = chk_out.read().decode().strip()
     console.print(f"[dim]Agent status (2s): {escape(status)}[/dim]")
@@ -666,9 +671,22 @@ def main():
             if capture_spec:
                 actual = result.get("a_text", "") + result.get("a_message", "")
                 for var_name, pattern in capture_spec.items():
-                    m = re.search(pattern, actual)
+                    try:
+                        m = re.search(pattern, actual)
+                    except re.error as exc:
+                        console.print(
+                            f"  [yellow]⚠ capture '{escape(var_name)}': "
+                            f"invalid regex pattern: {exc}[/yellow]"
+                        )
+                        continue
                     if m:
-                        variables[var_name] = m.group(1)
+                        try:
+                            variables[var_name] = m.group(1)
+                        except IndexError:
+                            console.print(
+                                f"  [yellow]⚠ capture '{escape(var_name)}': "
+                                f"pattern has no capture group[/yellow]"
+                            )
 
             if result.get("a_msg_type") == 6:
                 passed = False
