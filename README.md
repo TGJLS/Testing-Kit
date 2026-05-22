@@ -184,10 +184,31 @@ tasks:
 | `not_expected` | Case-insensitive substring that must *not* appear in output. |
 | `not_expected_regex` | Regex that must *not* match anywhere in the output. |
 | `allowed_to_fail` | If `true`, failure / timeout / dispatch rejection counts as `xfail` and does not fail the run. |
+| `capture` | Dict of `{variable_name: regex}`. After a task completes, each regex is matched against the output. The first capture group (`group(1)`) is stored in a `variables` dict that persists for the full run. Use `{{variable_name}}` in any subsequent task's `cmdline` to substitute the captured value. |
 
 All four assertion fields are optional and combinable — every specified assertion must pass. Omit all of them to only verify the command completed without error.
 
 > **Note:** Only commands supported by the server-side AxScript engine work here. Client-side hook commands are not available. Some commands complete successfully but return no text output via the task list API (e.g. `fs pwd` on Kharon) — omit `expected` for those.
+
+### Capture and Variable Substitution
+
+Use `capture` to store output from one task and reference it in later tasks via `{{variable_name}}`.
+
+Example — spawn a process and inspect it by PID:
+
+```yaml
+tasks:
+  - cmdline: 'ps run --command "notepad.exe"'
+    expected_regex: "Process started: PID \\d+"
+    capture:
+      pid: "Process started: PID (\\d+)"
+
+  - cmdline: "ps grep {{pid}}"
+    expected: "[Token]"
+
+  - cmdline: "ps kill {{pid}}"
+    not_expected: "error"
+```
 
 ---
 
