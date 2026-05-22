@@ -615,6 +615,7 @@ def main():
 
     results = []
     n = len(tasks)
+    variables = {}
 
     try:
         for i, task in enumerate(tasks, 1):
