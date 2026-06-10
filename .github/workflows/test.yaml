@@ -185,7 +185,7 @@ jobs:
         shell: wsl-bash {0}
         run: |
           CID=$(sudo docker create ghcr.io/tgjls/extension-kit:latest)
-          sudo docker cp "$CID":/ext /tmp/ext-src
+          sudo docker cp "$CID":/src /tmp/ext-src
           sudo docker rm "$CID"
 
       # ── WSL: Prepare AdaptixC2 profile ────────────────────────────────────────
