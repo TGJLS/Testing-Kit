@@ -70,7 +70,7 @@ jobs:
       - uses: Vampire/setup-wsl@v7
         with:
           distribution: Ubuntu-24.04
-          additional-packages: docker.io iproute2 curl git
+          additional-packages: docker.io iproute2 curl
 
       - name: Start Docker daemon in WSL
         shell: wsl-bash {0}
@@ -179,23 +179,14 @@ jobs:
           sudo docker pull ghcr.io/tgjls/extension-kit:latest
           sudo docker pull ghcr.io/tgjls/testing-kit:latest
 
-      # ── WSL: Build Extension-Kit ──────────────────────────────────────────────
+      # ── WSL: Extract Extension-Kit artifacts ─────────────────────────────────
 
-      - name: Clone Extension-Kit source
+      - name: Extract Extension-Kit from image
         shell: wsl-bash {0}
         run: |
-          git clone --branch dev https://github.com/Adaptix-Framework/Extension-Kit /tmp/ext-src
-          cd /tmp/ext-src
-          # PR #139 fixes compile errors; skip if already merged into dev
-          git fetch origin pull/139/head:pr-139 && git merge --no-edit pr-139 || \
-            echo "PR #139 merge skipped (likely already in dev)"
-
-      - name: Build Extension-Kit via builder image
-        shell: wsl-bash {0}
-        run: |
-          sudo docker run --rm \
-            -v /tmp/ext-src:/src \
-            ghcr.io/tgjls/extension-kit:latest
+          CID=$(sudo docker create ghcr.io/tgjls/extension-kit:latest)
+          sudo docker cp "$CID":/ext /tmp/ext-src
+          sudo docker rm "$CID"
 
       # ── WSL: Prepare AdaptixC2 profile ────────────────────────────────────────
 
