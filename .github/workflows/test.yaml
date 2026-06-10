@@ -2,8 +2,8 @@ name: Integration Tests
 
 # Runs on a GitHub-hosted windows-latest runner.
 # WSL2 runs three containers via Docker daemon:
-#   - adaptixc2      detached server, --network host
-#   - extension-kit  init container: populates ci_work volume
+#   - extension-kit  builder: clones source into /tmp/ext-src, runs make all
+#   - adaptixc2      detached server, --network host, built ext-kit + patched profile mounted
 #   - testing-kit    runs feature validation + integration tests
 # SSH delivery goes from Docker(WSL) → Windows.
 # Beacon callbacks go from Windows → Docker(WSL).
@@ -70,7 +70,7 @@ jobs:
       - uses: Vampire/setup-wsl@v7
         with:
           distribution: Ubuntu-24.04
-          additional-packages: docker.io iproute2 curl openssl
+          additional-packages: docker.io iproute2 curl git
 
       - name: Start Docker daemon in WSL
         shell: wsl-bash {0}
@@ -179,36 +179,46 @@ jobs:
           sudo docker pull ghcr.io/tgjls/extension-kit:latest
           sudo docker pull ghcr.io/tgjls/testing-kit:latest
 
-      # ── WSL: Prepare shared volume ────────────────────────────────────────────
+      # ── WSL: Build Extension-Kit ──────────────────────────────────────────────
 
-      - name: Stage Extension-Kit files into shared volume
+      - name: Clone Extension-Kit source
         shell: wsl-bash {0}
         run: |
-          sudo docker volume create ci_work
-          sudo docker run --rm \
-            -v ci_work:/work \
-            ghcr.io/tgjls/extension-kit:latest \
-            cp -r /extension-kit /work/Extension-Kit
+          git clone --depth 1 https://github.com/Adaptix-Framework/Extension-Kit /tmp/ext-src
+          cd /tmp/ext-src
+          git checkout dev
+          # PR #139 fixes compile errors; skip if already merged into dev
+          git fetch origin pull/139/head:pr-139 && git merge --no-edit pr-139 || \
+            echo "PR #139 merge skipped (likely already in dev)"
 
-      - name: Generate TLS certificate into shared volume
+      - name: Build Extension-Kit via builder image
         shell: wsl-bash {0}
         run: |
           sudo docker run --rm \
-            -v ci_work:/work \
-            ghcr.io/tgjls/adaptixc2:latest \
-            openssl req -x509 -nodes -newkey rsa:2048 \
-              -keyout /work/server.rsa.key \
-              -out /work/server.rsa.crt \
-              -days 1 -subj "/CN=ci"
+            -v /tmp/ext-src:/src \
+            ghcr.io/tgjls/extension-kit:latest
 
-      # ── WSL: AdaptixC2 server ─────────────────────────────────────────────────
+      # ── WSL: Prepare AdaptixC2 profile ────────────────────────────────────────
+
+      - name: Extract and patch profile.yaml to enable Extension-Kit
+        shell: wsl-bash {0}
+        run: |
+          # Extract profile without running the ENTRYPOINT
+          CID=$(sudo docker create ghcr.io/tgjls/adaptixc2:latest)
+          sudo docker cp "$CID":/app/profile.yaml /tmp/ci_profile.yaml
+          sudo docker rm "$CID"
+          # Uncomment the Extension-Kit axscript line
+          sed -i 's|#    - "Extension-Kit/extension-kit.axs"|    - "Extension-Kit/extension-kit.axs"|' /tmp/ci_profile.yaml
+
+      # ── WSL: Start AdaptixC2 server ───────────────────────────────────────────
 
       - name: Start AdaptixC2 server
         shell: wsl-bash {0}
         run: |
           sudo docker run -d --name adaptixc2 \
             --network host \
-            -v ci_work:/work \
+            -v /tmp/ext-src:/app/Extension-Kit:ro \
+            -v /tmp/ci_profile.yaml:/app/profile.yaml:ro \
             ghcr.io/tgjls/adaptixc2:latest
 
           echo "Waiting for AdaptixC2 (port 4321)..."
@@ -258,5 +268,4 @@ jobs:
         shell: wsl-bash {0}
         run: |
           sudo docker rm -f adaptixc2 2>/dev/null || true
-          sudo docker volume rm ci_work 2>/dev/null || true
           rm -f ~/.ssh/ci_key ~/.ssh/ci_key.pub
