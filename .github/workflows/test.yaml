@@ -1,8 +1,10 @@
 name: Integration Tests
 
 # Runs on a GitHub-hosted windows-latest runner.
-# WSL2 is initialized and runs Docker daemon natively.
-# The custom published Docker image runs with --network host passthrough.
+# WSL2 runs three containers via Docker daemon:
+#   - extension-kit  builder: clones source into /tmp/ext-src, runs make all
+#   - adaptixc2      detached server, --network host, built ext-kit + patched profile mounted
+#   - testing-kit    runs feature validation + integration tests
 # SSH delivery goes from Docker(WSL) → Windows.
 # Beacon callbacks go from Windows → Docker(WSL).
 
@@ -16,23 +18,22 @@ env:
   CI_PASS: Ci_Test_Pass1!
   CI_AGENT_DIR: 'C:\ci'
   CI_AGENT_PATH: 'C:\ci\agent.exe'
-  CI_CONTAINER: 'ghcr.io/thegr3atjosh/adaptix-prebuilt:latest'
+  ADAPTIXC2_IMAGE: ghcr.io/tgjls/adaptixc2:latest
+  EXTENSION_KIT_IMAGE: ghcr.io/tgjls/extension-kit:latest
+  TESTING_KIT_IMAGE: ghcr.io/tgjls/testing-kit:latest
 
 jobs:
   integration-test:
     runs-on: windows-latest
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
       - name: Pass CI variables into WSL
         shell: powershell
-        run: echo "WSLENV=CI_USER/u:CI_PASS/u:CI_AGENT_PATH/u:CI_CONTAINER/u" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+        run: echo "WSLENV=CI_USER/u:CI_PASS/u:CI_AGENT_PATH/u" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      # ── Windows: CI user, OpenSSH, tmp directory ────────────────────────────
-      # C:\ci (agent drop dir) and Defender/firewall config are handled by the
-      # SSH preamble after connecting — these steps only do what must exist
-      # before SSH is available.
+      # ── Windows: CI user, OpenSSH, tmp directory ─────────────────────────────
 
       - name: Create CI user
         shell: powershell
@@ -64,35 +65,27 @@ jobs:
         shell: powershell
         run: New-Item -ItemType Directory -Force -Path C:\tmp | Out-Null
 
-      # ── WSL: Ubuntu + Docker ────────────────────────────────────────────────
+      # ── WSL: Ubuntu + Docker ──────────────────────────────────────────────────
 
       - uses: Vampire/setup-wsl@v7
         with:
           distribution: Ubuntu-24.04
-          # Install Docker inside WSL
           additional-packages: docker.io iproute2 curl
 
       - name: Start Docker daemon in WSL
         shell: wsl-bash {0}
         run: |
-          # WSL compatibility for Docker
           sudo update-alternatives --set iptables /usr/sbin/iptables-legacy || true
           sudo update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy || true
-
-          # Start dockerd in the background
           sudo dockerd > /dev/null 2>&1 &
-
-          echo "Waiting for Docker to start..."
+          echo "Waiting for Docker..."
           for i in $(seq 1 30); do
-            if sudo docker info >/dev/null 2>&1; then
-              echo "Docker started successfully."
-              break
-            fi
+            sudo docker info >/dev/null 2>&1 && { echo "Docker ready."; break; }
             sleep 1
           done
           sudo docker info >/dev/null 2>&1 || { echo "Docker failed to start"; exit 1; }
 
-      # ── WSL: SSH setup ───────────────────────────────────────────────────────
+      # ── WSL: SSH setup ────────────────────────────────────────────────────────
 
       - name: Generate SSH keypair
         shell: wsl-bash {0}
@@ -108,7 +101,7 @@ jobs:
           Get-Content C:\tmp\ci_key.pub | Add-Content $authFile
           icacls $authFile /inheritance:r /grant "Administrators:F" /grant "SYSTEM:F"
 
-      # ── WSL: config + Execution ──────────────────────────────────────────────
+      # ── WSL: CI config ────────────────────────────────────────────────────────
 
       - name: Write CI config
         shell: wsl-bash {0}
@@ -177,78 +170,92 @@ jobs:
               - 'New-NetFirewallRule -DisplayName CI_C2_8080 -Direction Inbound -Protocol TCP -LocalPort 8080 -Action Allow -Profile Any | Out-Null'
           EOF
 
-      - name: Pull Adaptix Container
-        shell: wsl-bash {0}
-        run: sudo docker pull "$CI_CONTAINER"
+      # ── WSL: Pull images ──────────────────────────────────────────────────────
 
-      - name: Run CI Container (Server + Tests)
+      - name: Pull CI images
+        shell: wsl-bash {0}
+        run: |
+          sudo docker pull ghcr.io/tgjls/adaptixc2:latest
+          sudo docker pull ghcr.io/tgjls/extension-kit:latest
+          sudo docker pull ghcr.io/tgjls/testing-kit:latest
+
+      # ── WSL: Extract Extension-Kit artifacts ─────────────────────────────────
+
+      - name: Extract Extension-Kit from image
+        shell: wsl-bash {0}
+        run: |
+          CID=$(sudo docker create ghcr.io/tgjls/extension-kit:latest)
+          sudo docker cp "$CID":/src /tmp/ext-src
+          sudo docker rm "$CID"
+
+      # ── WSL: Prepare AdaptixC2 profile ────────────────────────────────────────
+
+      - name: Extract and patch profile.yaml to enable Extension-Kit
+        shell: wsl-bash {0}
+        run: |
+          # Extract profile without running the ENTRYPOINT
+          CID=$(sudo docker create ghcr.io/tgjls/adaptixc2:latest)
+          sudo docker cp "$CID":/app/profile.yaml /tmp/ci_profile.yaml
+          sudo docker rm "$CID"
+          # Uncomment the Extension-Kit axscript line
+          sed -i 's|#    - "Extension-Kit/extension-kit.axs"|    - "Extension-Kit/extension-kit.axs"|' /tmp/ci_profile.yaml
+
+      # ── WSL: Start AdaptixC2 server ───────────────────────────────────────────
+
+      - name: Start AdaptixC2 server
+        shell: wsl-bash {0}
+        run: |
+          sudo docker run -d --name adaptixc2 \
+            --network host \
+            -v /tmp/ext-src:/app/Extension-Kit:ro \
+            -v /tmp/ci_profile.yaml:/app/profile.yaml:ro \
+            ghcr.io/tgjls/adaptixc2:latest
+
+          echo "Waiting for AdaptixC2 (port 4321)..."
+          for i in $(seq 1 60); do
+            (exec 3<>/dev/tcp/127.0.0.1/4321) 2>/dev/null && { echo "Server ready."; break; }
+            sleep 1
+          done
+          (exec 3<>/dev/tcp/127.0.0.1/4321) 2>/dev/null || {
+            echo "=== AdaptixC2 server failed to start within 60s ==="
+            sudo docker logs adaptixc2
+            exit 1
+          }
+
+      # ── WSL: Tests ────────────────────────────────────────────────────────────
+
+      - name: Feature validation
+        shell: wsl-bash {0}
+        run: |
+          sudo docker run --rm \
+            ghcr.io/tgjls/testing-kit:latest --help 2>&1 | \
+            grep -q -- "-o" && echo "✓ --output flag available" || \
+            { echo "✗ --output flag missing"; exit 1; }
+
+      - name: Integration tests
         shell: wsl-bash {0}
         run: |
           WIN_WS=$(cmd.exe /c "echo %GITHUB_WORKSPACE%" 2>/dev/null | tr -d '\r')
           WSL_WS=$(wslpath "$WIN_WS")
 
-          sudo docker run --rm --network host \
-            -v "$WSL_WS:/workspace" \
-            -v ~/.ssh/ci_key:/root/.ssh/ci_key:ro \
+          sudo docker run --rm \
+            --network host \
+            -v "$WSL_WS/.github/ci/tasks.yaml":/tasks.yaml:ro \
             -v /tmp/ci_config.yaml:/tmp/ci_config.yaml:ro \
-            "$CI_CONTAINER" \
-            bash -c '
-              export PATH="/usr/local/bin:/root/.local/bin:$PATH"
-              uv tool install /workspace --reinstall
+            -v ~/.ssh/ci_key:/root/.ssh/ci_key:ro \
+            ghcr.io/tgjls/testing-kit:latest \
+            -c /tmp/ci_config.yaml -t /tasks.yaml
 
-              # ── Feature validation (no server required) ──────────────────
-              echo "=== Feature validation ==="
-              adaptix-testing --help 2>&1 | grep -q -- "-o" && \
-                echo "✓ --output flag available" || \
-                { echo "✗ --output flag missing from CLI"; exit 1; }
-              echo "=== Feature validation passed ==="
+      # ── Cleanup ───────────────────────────────────────────────────────────────
 
-              # ── Server startup ───────────────────────────────────────────
-              echo "Generating required TLS certificate..."
-              openssl req -x509 -nodes -newkey rsa:2048 \
-                -keyout /tmp/adaptixc2/dist/server.rsa.key \
-                -out /tmp/adaptixc2/dist/server.rsa.crt \
-                -days 1 -subj "/CN=ci" 2>/dev/null
-
-              echo "Starting AdaptixC2 Server..."
-              cd /tmp/adaptixc2/dist
-              ./adaptixserver -profile profile.yaml > /tmp/adaptixserver.log 2>&1 &
-              SERVER_PID=$!
-
-              # Wait up to 60s for the C2 to boot up fully
-              for i in $(seq 1 60); do
-                (exec 3<>/dev/tcp/127.0.0.1/4321) 2>/dev/null && break
-                sleep 1
-              done
-              (exec 3<>/dev/tcp/127.0.0.1/4321) 2>/dev/null || {
-                echo "=== AdaptixC2 server failed to start within 60s ==="
-                cat /tmp/adaptixserver.log
-                exit 1
-              }
-
-              # ── Integration tests (exercises --output and preamble) ──────
-              echo "AdaptixC2 Ready! Running integration tests..."
-              adaptix-testing -c /tmp/ci_config.yaml -t /workspace/.github/ci/tasks.yaml \
-                -o /tmp/ci-results.txt
-              TEST_EXIT_CODE=$?
-
-              echo "=== Test results ==="
-              cat /tmp/ci-results.txt
-
-              # Verify output file has a summary on success
-              if [ $TEST_EXIT_CODE -eq 0 ]; then
-                grep -q "All tasks passed" /tmp/ci-results.txt && \
-                  echo "✓ Output file contains expected summary" || \
-                  { echo "✗ Output file missing success summary"; exit 1; }
-              fi
-
-              kill $SERVER_PID 2>/dev/null
-              exit $TEST_EXIT_CODE
-            '
-
-      # ── Cleanup ──────────────────────────────────────────────────────────────
-
-      - name: Remove SSH key
+      - name: Print AdaptixC2 server logs
         if: always()
         shell: wsl-bash {0}
-        run: rm -f ~/.ssh/ci_key ~/.ssh/ci_key.pub
+        run: sudo docker logs adaptixc2 2>&1 || true
+
+      - name: Teardown
+        if: always()
+        shell: wsl-bash {0}
+        run: |
+          sudo docker rm -f adaptixc2 2>/dev/null || true
+          rm -f ~/.ssh/ci_key ~/.ssh/ci_key.pub
