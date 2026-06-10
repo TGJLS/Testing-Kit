@@ -184,9 +184,8 @@ jobs:
       - name: Clone Extension-Kit source
         shell: wsl-bash {0}
         run: |
-          git clone --depth 1 https://github.com/Adaptix-Framework/Extension-Kit /tmp/ext-src
+          git clone --branch dev https://github.com/Adaptix-Framework/Extension-Kit /tmp/ext-src
           cd /tmp/ext-src
-          git checkout dev
           # PR #139 fixes compile errors; skip if already merged into dev
           git fetch origin pull/139/head:pr-139 && git merge --no-edit pr-139 || \
             echo "PR #139 merge skipped (likely already in dev)"
