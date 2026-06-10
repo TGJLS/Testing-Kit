@@ -1,0 +1,12 @@
+.git
+.github
+.venv
+build/
+dist/
+wheels/
+*.egg-info
+__pycache__/
+*.py[oc]
+.pytest_cache
+.claude
+HANDOFF.md
