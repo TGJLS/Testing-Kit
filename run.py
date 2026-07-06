@@ -267,6 +267,8 @@ def ssh_connect(ssh_cfg):
         "look_for_keys": True,
         "allow_agent": True,
     }
+    if "port" in ssh_cfg:
+        kwargs["port"] = ssh_cfg["port"]
     if "key_path" in ssh_cfg:
         kwargs["key_filename"] = os.path.expanduser(ssh_cfg["key_path"])
     client.connect(**kwargs)
@@ -344,8 +346,22 @@ def ssh_deliver(base_url, headers, ssh_cfg):
     host = ssh_cfg["host"]
     agent_path = ssh_cfg["agent_path"]
 
+    retries = ssh_cfg.get("connect_retries", 30)
+    interval = ssh_cfg.get("connect_retry_interval", 20)
+
     console.print(f"[dim]SSH →[/dim] [cyan]{escape(host)}[/cyan]  [dim]{escape(agent_path)}[/dim]")
-    client = ssh_connect(ssh_cfg)
+    for attempt in range(1, retries + 1):
+        try:
+            client = ssh_connect(ssh_cfg)
+            break
+        except OSError:
+            if attempt == retries:
+                die(f"Windows target not reachable after {retries} attempts ({retries * interval}s)")
+            console.print(
+                f"  [dim]SSH not ready (attempt {attempt}/{retries}) — "
+                f"retrying in {interval}s ...[/dim]"
+            )
+            time.sleep(interval)
     console.print("[green]✓[/green]  SSH connected")
 
     preamble = ssh_cfg.get("preamble", [])
