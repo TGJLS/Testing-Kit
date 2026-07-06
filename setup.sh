@@ -6,8 +6,10 @@ CMD="${1:-}"
 case "$CMD" in
   init)
     # ── KVM check ──────────────────────────────────────────────────────────────
+    # docker-compose.override.yml adds /dev/kvm device to the windows service.
+    # Compose merges it automatically alongside docker-compose.yml.
     if [ -e /dev/kvm ]; then
-      echo "✓ /dev/kvm found — Windows will boot at full speed"
+      echo "✓ /dev/kvm found — writing docker-compose.override.yml to enable KVM acceleration"
       cat > docker-compose.override.yml <<'OVERRIDE'
 services:
   windows:
@@ -36,9 +38,11 @@ OVERRIDE
     echo "✓ ci/windows/unattend.xml rendered"
 
     # ── Generate config.yaml ────────────────────────────────────────────────────
+    # Addresses use Docker bridge DNS (service names) and the fixed adaptixc2 IP
+    # (172.28.0.10) for the Windows beacon callback — reachable via QEMU SLIRP NAT.
     cat > ci/config.yaml <<'CONFIG'
 server:
-  url: https://127.0.0.1:4321
+  url: https://adaptixc2:4321
   endpoint: /endpoint
 
 operator:
@@ -55,7 +59,7 @@ setup:
       host_bind: "0.0.0.0"
       port_bind: 8080
       callback_addresses:
-        - "10.0.2.2:8080"
+        - "172.28.0.10:8080"
       http_method: POST
       uri:
         - /beacon
@@ -76,8 +80,8 @@ setup:
       jitter: 0
 
 ssh:
-  host: 127.0.0.1
-  port: 2222
+  host: windows
+  port: 22
   username: ci_runner
   key_path: /run/secrets/ssh_key
   source_path: /tmp/ci_agent.exe

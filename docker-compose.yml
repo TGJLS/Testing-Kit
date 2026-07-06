@@ -2,12 +2,13 @@ services:
 
   windows:
     image: dockurr/windows
-    network_mode: host
+    networks: [ci-net]
+    ports:
+      - "2222:22"
     environment:
       VERSION: "11"
       RAM_SIZE: "4G"
       CPU_CORES: "2"
-      ARGUMENTS: "-nic user,hostfwd=tcp::2222-:22"
     volumes:
       - ./ci/windows/unattend.xml:/oem/unattend.xml:ro
       - windows-data:/storage
@@ -15,17 +16,26 @@ services:
 
   adaptixc2:
     image: ghcr.io/tgjls/adaptixc2:1.2
-    network_mode: host
+    networks:
+      ci-net:
+        ipv4_address: 172.28.0.10
     restart: unless-stopped
 
   testing-kit:
     build: .
-    network_mode: host
+    networks: [ci-net]
     volumes:
       - ./ci/ssh/id_test:/run/secrets/ssh_key:ro
       - ./ci/config.yaml:/app/config.yaml:ro
       - ./tasks.yaml:/app/tasks.yaml:ro
     profiles: [test]
+
+networks:
+  ci-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
 
 volumes:
   windows-data:
