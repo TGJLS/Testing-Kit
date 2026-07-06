@@ -107,11 +107,15 @@ CONFIG
     ;;
 
   down)
+    docker compose down
+    ;;
+
+  reset)
     docker compose down -v
     ;;
 
   *)
-    echo "Usage: $0 {init|up|test|down}"
+    echo "Usage: $0 {init|up|test|down|reset}"
     exit 1
     ;;
 esac

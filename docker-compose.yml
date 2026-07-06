@@ -3,12 +3,14 @@ services:
   windows:
     image: dockurr/windows
     networks: [ci-net]
+    cap_add: [NET_ADMIN]
     ports:
       - "2222:22"
     environment:
       VERSION: "11"
       RAM_SIZE: "4G"
       CPU_CORES: "2"
+      USER_PORTS: "22"
     volumes:
       - ./ci/windows/unattend.xml:/oem/unattend.xml:ro
       - windows-data:/storage

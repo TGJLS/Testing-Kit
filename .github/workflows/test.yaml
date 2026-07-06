@@ -27,4 +27,4 @@ jobs:
 
       - name: Teardown
         if: always()
-        run: bash setup.sh down
+        run: bash setup.sh reset
