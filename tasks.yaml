@@ -1,47 +1,32 @@
+# Add tasks here to test commands provided by your agent or any loaded Extension-Kit.
+# Each task runs against the live beacon. Fields:
+#   cmdline            — command sent to the agent (as typed in the Adaptix console)
+#   expected           — substring the output must contain (omit to just check it ran)
+#   expected_regex     — regex that must match somewhere in the output
+#   not_expected       — substring that must NOT appear in the output
+#   not_expected_regex — regex that must NOT match anywhere in the output
+#   allowed_to_fail    — set true for expected-error cases (unknown cmd, bad args, etc.)
 tasks:
-  # Simple tasks
+  # Verify the agent is running as the CI user
   - cmdline: "whoami"
-    expected: "localuser"
+    expected: "ci_runner"
 
-  # Use expected to match only the fragment you care about
-  - cmdline: "dir C:\\Users\\kali\\test"
-    expected: Kharon.x64.exe
+  # Verify the username matches the expected pattern (regex)
+  - cmdline: "whoami"
+    expected_regex: "(?i)ci_runner"
 
-  # Or use multiline to match the entire thing
-  - cmdline: "dir C:\\Users\\kali\\test"
-    expected: |
-        C:\Users\kali\test
-        Contents of C:\Users\kali\test\*:
-        	04/19/2026 16:59           <dir> .
-        	04/19/2026 16:59           <dir> ..
-        	04/16/2026 22:43           75776 Kharon.x64.exe
-        	                           75776 Total File Size for 1 File(s)
-        	                                                      2 Dir(s)
+  # Verify filesystem access — C:\ci is where the agent was dropped
+  - cmdline: "dir C:\\ci"
+    expected: "agent.exe"
+    not_expected: "File Not Found"
 
-  # ── Error handling ────────────────────────────────────────────────
+  # Verify whoami output contains no error indicators (negative regex)
+  - cmdline: "whoami"
+    not_expected_regex: "(?i)error|access.denied|failed"
+
+  # ── Error handling ─────────────────────────────────────────────────
   # Unknown commands are rejected at dispatch (ok=false from server).
   - cmdline: "xyzzy frobnicate"
     expected: "will never succeed"
     allowed_to_fail: true
 
-  # BOF with a nonexistent file is rejected at dispatch.
-  - cmdline: "bof /tmp/nonexistent.o"
-    allowed_to_fail: true
-
-  # ── Regex and negative matching ───────────────────────────────────────
-  # Regex match — case-sensitive; use (?i) prefix for case-insensitive
-  # - cmdline: "whoami"
-  #   expected_regex: "(?i)^.*user.*$"
-
-  # Negative match — assert a substring is NOT in the output
-  # - cmdline: "whoami"
-  #   not_expected: "error"
-
-  # Negative regex — assert a pattern does NOT match
-  # - cmdline: "whoami"
-  #   not_expected_regex: "(?i)access.denied|permission.denied"
-
-  # Combined — all specified assertions must pass
-  # - cmdline: "whoami"
-  #   expected: "user"
-  #   not_expected_regex: "(?i)access.denied|error"

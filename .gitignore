@@ -13,3 +13,9 @@ wheels/
 *.md
 !README.md
 .claude/
+
+# CI-generated artifacts
+ci/windows/unattend.xml
+ci/ssh/
+ci/config.yaml
+docker-compose.override.yml
