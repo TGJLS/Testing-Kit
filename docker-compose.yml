@@ -1,0 +1,31 @@
+services:
+
+  windows:
+    image: dockurr/windows
+    network_mode: host
+    environment:
+      VERSION: "11"
+      RAM_SIZE: "4G"
+      CPU_CORES: "2"
+      ARGUMENTS: "-nic user,hostfwd=tcp::2222-:22"
+    volumes:
+      - ./ci/windows/unattend.xml:/oem/unattend.xml:ro
+      - windows-data:/storage
+    restart: unless-stopped
+
+  adaptixc2:
+    image: ghcr.io/tgjls/adaptixc2:1.2
+    network_mode: host
+    restart: unless-stopped
+
+  testing-kit:
+    build: .
+    network_mode: host
+    volumes:
+      - ./ci/ssh/id_test:/run/secrets/ssh_key:ro
+      - ./ci/config.yaml:/app/config.yaml:ro
+      - ./tasks.yaml:/app/tasks.yaml:ro
+    profiles: [test]
+
+volumes:
+  windows-data:
