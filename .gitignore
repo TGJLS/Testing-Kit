@@ -19,5 +19,7 @@ wheels/
 ci/oem/install.bat
 ci/oem/OpenSSH-Win64.zip
 ci/ssh/
+ci/oem/authorized_keys
+ci/windows/unattend.xml
 ci/config.yaml
 docker-compose.override.yml
