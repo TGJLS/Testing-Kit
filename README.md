@@ -2,19 +2,16 @@
 
 Automated task runner for [Adaptix C2](https://github.com/Adaptix-Framework/AdaptixC2). Connects to a running Adaptix server, optionally spins up a listener and delivers an agent via SSH, then dispatches a sequence of commands and checks their output against assertions.
 
-## Install
+## Usage
 
 ```sh
-uv tool install git+https://github.com/TGJLS/Testing-Kit
+git clone https://github.com/TGJLS/Testing-Kit
+cd Testing-Kit
+./setup.sh init   # generate SSH keys, render configs
+./setup.sh up     # start Adaptix C2 + Windows containers
+./setup.sh test   # run the test suite
+./setup.sh down   # stop containers (./setup.sh reset to also wipe volumes)
 ```
-
-## Quick start
-
-```sh
-adaptix-testing -c config.yaml -t tasks.yaml
-```
-
-Both flags default to `config.yaml` / `tasks.yaml` in the current directory if omitted.
 
 ## Docs
 
