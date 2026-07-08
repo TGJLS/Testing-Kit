@@ -125,7 +125,7 @@ ssh:
   source_path: /tmp/ci_agent.exe
   agent_path: 'C:\ci\agent.exe'
   terminate: true
-  connect_retries: 120
+  connect_retries: 60
   connect_retry_interval: 20
   preamble:
     - 'New-Item -ItemType Directory -Force -Path C:\ci | Out-Null'
