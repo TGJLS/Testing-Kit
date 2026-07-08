@@ -12,6 +12,7 @@ wheels/
 # Claude Code
 *.md
 !README.md
+!docs/*.md
 .claude/
 
 # CI-generated artifacts

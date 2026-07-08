@@ -12,18 +12,6 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.14'
-
-      - name: Install build tools
-        run: pip install hatchling build
-
-      - name: Build wheel
-        run: python -m build --wheel --outdir dist/
-
-      - name: Create release with assets
-        run: gh release create ${{ github.ref_name }} dist/*.whl --generate-notes
+      - run: gh release create ${{ github.ref_name }} --generate-notes
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
