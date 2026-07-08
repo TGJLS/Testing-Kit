@@ -21,8 +21,36 @@ OVERRIDE
       rm -f docker-compose.override.yml
     fi
 
+    # ── btrfs copy-on-write check ────────────────────────────────────────────────
+    # QEMU's raw disk image does lots of small synchronous random writes during
+    # Windows Setup. btrfs's default copy-on-write causes heavy fragmentation and
+    # write-amplification for that pattern, making the install dramatically
+    # slower (I/O-wait bound regardless of free RAM/CPU). chattr +C must be set
+    # on the volume directory *before* the image file is created — it does not
+    # apply retroactively to existing data, so this must run on a fresh/empty
+    # volume (e.g. right after './setup.sh reset').
+    #
+    # The volume dir under /var/lib/docker is root-owned, so this runs the
+    # check/fix inside a throwaway container (CAP_LINUX_IMMUTABLE) instead of
+    # requiring host sudo — the docker group already grants root-equivalent
+    # access to the underlying files.
+    DOCKER_ROOT="$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || echo /var/lib/docker)"
+    if [ "$(stat -f -c %T "$DOCKER_ROOT" 2>/dev/null)" = "btrfs" ]; then
+      docker volume create testing-kit_windows-data >/dev/null
+      ATTR="$(docker run --rm --cap-add LINUX_IMMUTABLE -v testing-kit_windows-data:/data alpine sh -c \
+        'apk add --no-cache e2fsprogs-extra >/dev/null 2>&1; lsattr -d /data' 2>/dev/null)"
+      case "$ATTR" in
+        *C*) echo "✓ btrfs detected — copy-on-write already disabled on testing-kit_windows-data volume" ;;
+        *)
+          docker run --rm --cap-add LINUX_IMMUTABLE -v testing-kit_windows-data:/data alpine sh -c \
+            'apk add --no-cache e2fsprogs-extra >/dev/null 2>&1; chattr +C /data' >/dev/null 2>&1
+          echo "✓ btrfs detected — disabled copy-on-write on testing-kit_windows-data volume"
+          ;;
+      esac
+    fi
+
     # ── SSH keypair ─────────────────────────────────────────────────────────────
-    mkdir -p ci/ssh
+    mkdir -p ci/ssh ci/oem
     if [ -f ci/ssh/id_test ]; then
       echo "⚠  ci/ssh/id_test already exists — delete it first to regenerate"
     else
@@ -31,11 +59,21 @@ OVERRIDE
       echo "✓ SSH keypair generated at ci/ssh/id_test"
     fi
 
-    # ── Render unattend.xml ─────────────────────────────────────────────────────
+    # Download OpenSSH portable binary (used by install.bat — no internet needed in the VM)
+    if [ ! -f ci/oem/OpenSSH-Win64.zip ]; then
+      echo "Downloading OpenSSH-Win64.zip ..."
+      curl -fsSL -o ci/oem/OpenSSH-Win64.zip \
+        "https://github.com/PowerShell/Win32-OpenSSH/releases/latest/download/OpenSSH-Win64.zip"
+      echo "✓ OpenSSH-Win64.zip downloaded"
+    else
+      echo "⚠  ci/oem/OpenSSH-Win64.zip already exists — skipping download"
+    fi
+
+    # Render install.bat with the public key embedded
     PUBLIC_KEY=$(cat ci/ssh/id_test.pub)
     sed "s|{{PUBLIC_KEY}}|${PUBLIC_KEY}|g" \
-      ci/windows/unattend.xml.template > ci/windows/unattend.xml
-    echo "✓ ci/windows/unattend.xml rendered"
+      ci/oem/install.bat.template > ci/oem/install.bat
+    echo "✓ ci/oem/install.bat rendered"
 
     # ── Generate config.yaml ────────────────────────────────────────────────────
     # Addresses use Docker bridge DNS (service names) and the fixed adaptixc2 IP
@@ -87,7 +125,7 @@ ssh:
   source_path: /tmp/ci_agent.exe
   agent_path: 'C:\ci\agent.exe'
   terminate: true
-  connect_retries: 30
+  connect_retries: 120
   connect_retry_interval: 20
   preamble:
     - 'New-Item -ItemType Directory -Force -Path C:\ci | Out-Null'
@@ -99,6 +137,10 @@ CONFIG
     ;;
 
   up)
+    if [ ! -f ci/ssh/id_test ] || [ ! -f ci/oem/install.bat ] || [ ! -f ci/oem/OpenSSH-Win64.zip ] || [ ! -f ci/config.yaml ]; then
+      echo "✗ Run './setup.sh init' first"
+      exit 1
+    fi
     docker compose up -d windows adaptixc2
     ;;
 

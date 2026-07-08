@@ -5,14 +5,18 @@ services:
     networks: [ci-net]
     cap_add: [NET_ADMIN]
     ports:
+      - "8006:8006"
       - "2222:22"
+      - "3389:3389"
     environment:
       VERSION: "11"
       RAM_SIZE: "4G"
-      CPU_CORES: "2"
+      CPU_CORES: "4"
       USER_PORTS: "22"
+      DISK_CACHE: "writeback"
+      DISK_IO: "threads"
     volumes:
-      - ./ci/windows/unattend.xml:/oem/unattend.xml:ro
+      - ./ci/oem:/oem:ro
       - windows-data:/storage
     restart: unless-stopped
 

@@ -264,8 +264,9 @@ def ssh_connect(ssh_cfg):
     kwargs = {
         "hostname": ssh_cfg["host"],
         "username": ssh_cfg["username"],
-        "look_for_keys": True,
-        "allow_agent": True,
+        "look_for_keys": False,
+        "allow_agent": False,
+        "timeout": 30,
     }
     if "port" in ssh_cfg:
         kwargs["port"] = ssh_cfg["port"]
@@ -354,7 +355,7 @@ def ssh_deliver(base_url, headers, ssh_cfg):
         try:
             client = ssh_connect(ssh_cfg)
             break
-        except OSError:
+        except (OSError, paramiko.SSHException):
             if attempt == retries:
                 die(f"Windows target not reachable after {retries} attempts ({retries * interval}s)")
             console.print(

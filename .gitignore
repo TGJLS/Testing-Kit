@@ -15,7 +15,8 @@ wheels/
 .claude/
 
 # CI-generated artifacts
-ci/windows/unattend.xml
+ci/oem/install.bat
+ci/oem/OpenSSH-Win64.zip
 ci/ssh/
 ci/config.yaml
 docker-compose.override.yml

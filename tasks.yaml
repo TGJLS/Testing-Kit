@@ -7,21 +7,21 @@
 #   not_expected_regex — regex that must NOT match anywhere in the output
 #   allowed_to_fail    — set true for expected-error cases (unknown cmd, bad args, etc.)
 tasks:
-  # Verify the agent is running as the CI user
-  - cmdline: "whoami"
+  # Verify the agent is running as the CI user (beacon uses 'shell' to execute OS commands)
+  - cmdline: "shell whoami"
     expected: "ci_runner"
 
   # Verify the username matches the expected pattern (regex)
-  - cmdline: "whoami"
+  - cmdline: "shell whoami"
     expected_regex: "(?i)ci_runner"
 
   # Verify filesystem access — C:\ci is where the agent was dropped
-  - cmdline: "dir C:\\ci"
+  - cmdline: "shell dir C:\\ci"
     expected: "agent.exe"
     not_expected: "File Not Found"
 
   # Verify whoami output contains no error indicators (negative regex)
-  - cmdline: "whoami"
+  - cmdline: "shell whoami"
     not_expected_regex: "(?i)error|access.denied|failed"
 
   # ── Error handling ─────────────────────────────────────────────────
