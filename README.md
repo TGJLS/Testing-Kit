@@ -1,6 +1,12 @@
 # Testing-Kit
 
-Automated task runner for [Adaptix C2](https://github.com/Adaptix-Framework/AdaptixC2). Connects to a running Adaptix server, optionally spins up a listener and delivers an agent via SSH, then dispatches a sequence of commands and checks their output against assertions.
+Automated task runner for [Adaptix C2](https://github.com/Adaptix-Framework/AdaptixC2).
+
+1. Creates a container running Adaptix server and a container running Windows.
+2. Creates a listener and generates and delivers an agent via SSH.
+3. Runs a set of commands and checks their output against.
+
+Useful for developing [Adaptix C2](https://github.com/Adaptix-Framework/AdaptixC2) extenders and testing new features, preventing regression or CI/CD.
 
 ## Usage
 
@@ -10,13 +16,14 @@ cd Testing-Kit
 ./setup.sh init   # generate SSH keys, render configs
 ./setup.sh up     # start Adaptix C2 + Windows containers
 ./setup.sh test   # run the test suite
-./setup.sh down   # stop containers (./setup.sh reset to also wipe volumes)
+./setup.sh down   # stop containers
+./setup.sh reset  # wipe volumes
 ```
 
 ## Docs
 
-- [CLI & config reference](docs/cli.md) — all flags, `config.yaml` structure, SSH delivery, setup options
-- [Tasks format](docs/tasks.md) — task fields, assertions, capture and variable substitution
++ [Tasks format](docs/tasks.md) — task fields, assertions, capture and variable substitution
++ [Deprecated Python script](python_script_deprecated/README.md)
 
 ## CI/CD note
 
