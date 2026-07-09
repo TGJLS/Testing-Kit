@@ -13,7 +13,7 @@ import (
 
 var (
 	version   = "main"
-	repoOwner = "TheGr3atJosh/Testing-Kit"
+	repoOwner = "TGJLS/Testing-Kit"
 )
 
 const apiURL = "http://localhost:1234"

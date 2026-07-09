@@ -35,10 +35,10 @@ jobs:
 
       - name: Build CLI
         run: |
-          go build \
-            -ldflags "-X main.version=${GITHUB_REF_NAME} -X 'main.repoOwner=TheGr3atJosh/Testing-Kit'" \
-            -o testing-kit-cli \
-            ./cli
+          cd cli && go build \
+            -ldflags "-X main.version=${GITHUB_REF_NAME} -X 'main.repoOwner=TGJLS/Testing-Kit'" \
+            -o ../testing-kit-cli \
+            .
 
       - name: Package CLI
         run: tar -czf testing-kit-cli.tar.gz testing-kit-cli
