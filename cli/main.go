@@ -70,6 +70,10 @@ func cmdRunTests() {
 
 	body, _ := io.ReadAll(resp.Body)
 
+	if resp.StatusCode != http.StatusOK {
+		die(fmt.Sprintf("API error %d: %s", resp.StatusCode, strings.TrimSpace(string(body))))
+	}
+
 	var result struct {
 		Passed         int `json:"passed"`
 		Failed         int `json:"failed"`
