@@ -44,7 +44,7 @@ _ADAPTIX_DB = os.path.expanduser("~/.adaptix/storage-v1.db")
 
 def _load_profile(table, project, name=None):
     if not os.path.exists(_ADAPTIX_DB):
-        die(f"Adaptix database not found: {_ADAPTIX_DB}")
+        raise RuntimeError(f"Adaptix database not found: {_ADAPTIX_DB}")
     con = sqlite3.connect(_ADAPTIX_DB)
     try:
         if name:
@@ -59,14 +59,14 @@ def _load_profile(table, project, name=None):
         con.close()
     if row is None:
         target = f"'{name}'" if name else "any profile"
-        die(f"{table}: {target} not found in project '{project}'")
+        raise RuntimeError(f"{table}: {target} not found in project '{project}'")
     return json.loads(row[0])
 
 
 def _auto_agent_profile(project, listener_name):
     """First agent profile whose listener field matches listener_name, else first overall."""
     if not os.path.exists(_ADAPTIX_DB):
-        die(f"Adaptix database not found: {_ADAPTIX_DB}")
+        raise RuntimeError(f"Adaptix database not found: {_ADAPTIX_DB}")
     con = sqlite3.connect(_ADAPTIX_DB)
     try:
         rows = con.execute(
@@ -75,7 +75,7 @@ def _auto_agent_profile(project, listener_name):
     finally:
         con.close()
     if not rows:
-        die(f"AgentProfiles: no profiles found in project '{project}'")
+        raise RuntimeError(f"AgentProfiles: no profiles found in project '{project}'")
     profiles = [json.loads(r[0]) for r in rows]
     match = next((p for p in profiles if p.get("listener") == listener_name), None)
     if match:
@@ -138,7 +138,7 @@ def _create_listener_from_profile(base_url, headers, profile):
         if "already exists" in msg.lower():
             console.print(f"[yellow]⚠[/yellow]  Listener '[cyan]{escape(name)}[/cyan]' already exists — skipping")
         else:
-            die(f"Failed to create listener: {msg}")
+            raise RuntimeError(f"Failed to create listener: {msg}")
     else:
         console.print(f"[green]✓[/green]  Listener '[cyan]{escape(name)}[/cyan]' created")
 
@@ -163,11 +163,11 @@ def _generate_agent_from_profile(base_url, headers, profile, output_path):
     resp.raise_for_status()
     data = resp.json()
     if not data.get("ok"):
-        die(f"Failed to generate agent: {data.get('message', '')}")
+        raise RuntimeError(f"Failed to generate agent: {data.get('message', '')}")
 
     msg = data.get("message", "")
     if not msg:
-        die("Agent generation succeeded but response contained no payload")
+        raise RuntimeError("Agent generation succeeded but response contained no payload")
     name_b64, content_b64 = msg.split(":", 1)
     filename = base64.b64decode(name_b64).decode()
     payload = base64.b64decode(content_b64)
@@ -235,12 +235,12 @@ def get_agent_list(base_url, headers):
 def resolve_agent(base_url, headers, cfg_agent_id):
     agents = get_agent_list(base_url, headers)
     if not agents:
-        die("No agents available on the server.")
+        raise RuntimeError("No agents available on the server.")
 
     if cfg_agent_id:
         agent = next((a for a in agents if a.get("a_id") == cfg_agent_id), None)
         if agent is None:
-            die(f"Agent '{cfg_agent_id}' not found. Available: {[a.get('a_id') for a in agents]}")
+            raise RuntimeError(f"Agent '{cfg_agent_id}' not found. Available: {[a.get('a_id') for a in agents]}")
     else:
         agent = agents[0]
         console.print(f"[dim]No agent.id in config — using first available: {agent.get('a_id')}[/dim]")
@@ -359,7 +359,7 @@ def ssh_deliver(base_url, headers, ssh_cfg, conn):
             break
         except (OSError, paramiko.SSHException):
             if attempt == retries:
-                die(f"Windows target not reachable after {retries} attempts ({retries * interval}s)")
+                raise RuntimeError(f"Windows target not reachable after {retries} attempts ({retries * interval}s)")
             console.print(
                 f"  [dim]SSH not ready (attempt {attempt}/{retries}) — "
                 f"retrying in {interval}s ...[/dim]"
@@ -376,7 +376,7 @@ def ssh_deliver(base_url, headers, ssh_cfg, conn):
                 console.print(f"  [dim]{escape(line)}[/dim]")
         if exit_code != 0:
             client.close()
-            die(f"Preamble command failed (exit {exit_code}): {escape(err or 'no stderr')}")
+            raise RuntimeError(f"Preamble command failed (exit {exit_code}): {err or 'no stderr'}")
     if preamble:
         console.print(f"[green]✓[/green]  Preamble done ({len(preamble)} command{'s' if len(preamble) != 1 else ''})")
 
@@ -412,7 +412,7 @@ def ssh_deliver(base_url, headers, ssh_cfg, conn):
     agent = wait_for_active_agent(base_url, headers, known_ticks)
     if agent is None:
         client.close()
-        die("Agent did not check in within 60s.")
+        raise RuntimeError("Agent did not check in within 60s.")
 
     console.print(f"[green]✓[/green]  Agent checked in  [dim]({agent.get('a_id')})[/dim]")
     return client, agent.get("a_id")
@@ -747,7 +747,7 @@ def main():
             output_path_agent = setup_cfg.get("agent_output", "./generated_agent")
             agent_profile = _resolve_agent_profile(setup_cfg, project, listener_profile["name"])
             _generate_agent_from_profile(base_url, headers, agent_profile, output_path_agent)
-        except requests.exceptions.RequestException as e:
+        except Exception as e:
             die(f"Setup failed: {e}")
 
     ssh_client = None
@@ -762,7 +762,7 @@ def main():
         cfg_agent_id = cfg.get("agent", {}).get("id") or None
         try:
             agent_id = resolve_agent(base_url, headers, cfg_agent_id)
-        except requests.exceptions.RequestException as e:
+        except Exception as e:
             die(f"Failed to fetch agent list: {e}")
 
     console.clear()
