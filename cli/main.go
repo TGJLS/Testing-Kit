@@ -62,7 +62,7 @@ func cmdCompose(args ...string) {
 }
 
 func cmdRunTests() {
-	resp, err := http.Post(apiURL+"/run-tests", "application/json", nil)
+	resp, err := http.Post(apiURL+"/v1/run-tests", "application/json", nil)
 	if err != nil {
 		die(fmt.Sprintf("Error calling API: %v", err))
 	}
@@ -174,7 +174,7 @@ func downloadFiles() {
 	}
 	fmt.Println("✓ docker-compose.yml downloaded")
 
-	for _, f := range []string{"config/config.yaml", "config/tasks.yaml"} {
+	for _, f := range []string{"config/config.yaml"} {
 		if _, err := os.Stat(f); err == nil {
 			fmt.Printf("⚠  %s already exists — skipping\n", f)
 			continue
@@ -220,7 +220,7 @@ func checkBtrfs() {
 }
 
 func downloadOpenSSH() {
-	const dest = "ci/oem/OpenSSH-Win64.zip"
+	const dest = "windows/oem/OpenSSH-Win64.zip"
 	const url = "https://github.com/PowerShell/Win32-OpenSSH/releases/latest/download/OpenSSH-Win64.zip"
 
 	if _, err := os.Stat(dest); err == nil {
@@ -257,17 +257,17 @@ func generateSSHKey() {
 		fmt.Println("⚠  ssh/id_test already exists — skipping key generation")
 	}
 
-	tmpl, err := os.ReadFile("ci/oem/install.bat.template")
+	tmpl, err := os.ReadFile("windows/oem/install.bat.template")
 	if err != nil {
-		die(fmt.Sprintf("Failed to read ci/oem/install.bat.template: %v", err))
+		die(fmt.Sprintf("Failed to read windows/oem/install.bat.template: %v", err))
 	}
 	pubKey, err := os.ReadFile(pubPath)
 	if err != nil {
 		die(fmt.Sprintf("Failed to read %s: %v", pubPath, err))
 	}
 	rendered := strings.ReplaceAll(string(tmpl), "{{PUBLIC_KEY}}", strings.TrimSpace(string(pubKey)))
-	if err := os.WriteFile("ci/oem/install.bat", []byte(rendered), 0o644); err != nil {
-		die(fmt.Sprintf("Failed to write ci/oem/install.bat: %v", err))
+	if err := os.WriteFile("windows/oem/install.bat", []byte(rendered), 0o644); err != nil {
+		die(fmt.Sprintf("Failed to write windows/oem/install.bat: %v", err))
 	}
-	fmt.Println("✓ ci/oem/install.bat rendered")
+	fmt.Println("✓ windows/oem/install.bat rendered")
 }

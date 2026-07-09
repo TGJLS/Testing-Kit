@@ -16,11 +16,12 @@ wheels/
 .claude/
 
 # CI-generated artifacts
-ci/oem/install.bat
-ci/oem/OpenSSH-Win64.zip
-ci/ssh/
-ci/oem/authorized_keys
-ci/windows/unattend.xml
+windows/config.yaml
+windows/oem/install.bat
+windows/oem/OpenSSH-Win64.zip
+windows/ssh/
+windows/oem/authorized_keys
+windows/windows/unattend.xml
 docker-compose.override.yml
 ssh/
 testing-kit-cli

@@ -10,11 +10,13 @@ COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-install-project --no-dev
 
-COPY server.py README.md ./
+COPY adaptix_testing/ ./adaptix_testing/
+COPY README.md ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
 
 ENV PATH="/app/.venv/bin:$PATH"
 
 EXPOSE 1234
-ENTRYPOINT ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "1234"]
+
+ENTRYPOINT ["uvicorn", "adaptix_testing.api:app", "--host", "0.0.0.0", "--port", "1234"]

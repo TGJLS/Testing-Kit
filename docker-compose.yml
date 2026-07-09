@@ -12,7 +12,7 @@ services:
       DISK_CACHE: "writeback"
       DISK_IO: "threads"
     volumes:
-      - ./ci/oem:/oem:ro
+      - ./windows/oem:/oem:ro
       - windows-data:/storage
     restart: unless-stopped
 
@@ -28,9 +28,12 @@ services:
     networks: [ci-net]
     ports:
       - "1234:1234"
+    environment:
+      TESTING_KIT_DB: /data/testing_kit.db
     volumes:
-      - ./config:/app/config
+      - ./config/config.yaml:/app/config.yaml:ro
       - ./ssh/id_test:/run/secrets/ssh_key:ro
+      - testing-kit-db:/data
     restart: unless-stopped
 
 networks:
@@ -42,3 +45,4 @@ networks:
 
 volumes:
   windows-data:
+  testing-kit-db:
