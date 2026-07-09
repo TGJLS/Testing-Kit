@@ -26,7 +26,7 @@ services:
     restart: unless-stopped
 
   testing-kit:
-    image: ghcr.io/tgjls/testing-kit:2.0.0
+    image: ghcr.io/tgjls/testing-kit:2.1.0
     networks: [ci-net]
     ports:
       - "1234:1234"

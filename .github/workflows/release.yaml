@@ -14,6 +14,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-go@v5
         with:
@@ -43,7 +45,30 @@ jobs:
       - name: Package CLI
         run: tar -czf testing-kit-cli.tar.gz testing-kit-cli
 
+      - name: Generate release notes
+        run: |
+          PREV_TAG=$(git tag --sort=-version:refname | grep '^v' | sed -n '2p')
+          RANGE="${PREV_TAG:+${PREV_TAG}..}HEAD"
+
+          get_commits() { git log $RANGE --format="%s" | grep -E "^$1(\([^)]*\))?!?:" | sed "s/^$1[^:]*: /- /" || true; }
+
+          FEATURES=$(get_commits "feat")
+          FIXES=$(get_commits "fix")
+          DOCS=$(get_commits "docs")
+          REFACTORS=$(get_commits "refactor")
+          CHORES=$(git log $RANGE --format="%s" | grep -E "^(chore|ci|test|build|perf)(\([^)]*\))?!?:" | sed 's/^[^:]*: /- /' || true)
+
+          {
+            [ -n "$FEATURES" ]  && printf "## Features\n%s\n\n"     "$FEATURES"
+            [ -n "$FIXES" ]     && printf "## Bug Fixes\n%s\n\n"    "$FIXES"
+            [ -n "$DOCS" ]      && printf "## Documentation\n%s\n\n" "$DOCS"
+            [ -n "$REFACTORS" ] && printf "## Refactoring\n%s\n\n"  "$REFACTORS"
+            [ -n "$CHORES" ]    && printf "## Maintenance\n%s\n\n"   "$CHORES"
+          } > release-notes.md
+
+          cat release-notes.md
+
       - name: Create GitHub release
-        run: gh release create ${{ github.ref_name }} --generate-notes testing-kit-cli.tar.gz
+        run: gh release create ${{ github.ref_name }} --notes-file release-notes.md testing-kit-cli.tar.gz
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

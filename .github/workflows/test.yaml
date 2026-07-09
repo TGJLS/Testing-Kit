@@ -33,7 +33,7 @@ jobs:
           cache: false
 
       - name: Build Docker image
-        run: docker build -t ghcr.io/tgjls/testing-kit:2.0.0 .
+        run: docker build -t ghcr.io/tgjls/testing-kit:2.1.0 .
 
       - name: Build CLI
         run: |
