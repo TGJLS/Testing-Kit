@@ -386,6 +386,9 @@ def ssh_deliver(base_url, headers, ssh_cfg, conn):
 
     if "source_path" in ssh_cfg:
         source = os.path.expanduser(ssh_cfg["source_path"])
+        remote_dir = agent_path.replace("/", "\\").rsplit("\\", 1)[0]
+        if remote_dir:
+            _ps_run(client, f"New-Item -ItemType Directory -Force -Path '{remote_dir.replace(chr(39), chr(39)*2)}'")
         console.print(
             f"  [dim]uploading[/dim] [white]{escape(source)}[/white] "
             f"[dim]→[/dim] [white]{escape(agent_path)}[/white] [dim]...[/dim]"
