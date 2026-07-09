@@ -23,3 +23,5 @@ ci/oem/authorized_keys
 ci/windows/unattend.xml
 docker-compose.override.yml
 ssh/
+testing-kit-cli
+testing-kit-cli.tar.gz
