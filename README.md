@@ -8,25 +8,25 @@ Automated task runner for [Adaptix C2](https://github.com/Adaptix-Framework/Adap
 
 Useful for developing [Adaptix C2](https://github.com/Adaptix-Framework/AdaptixC2) extenders and testing new features, preventing regression or CI/CD.
 
-## Usage
+## Installation
 
 ```sh
-git clone https://github.com/TGJLS/Testing-Kit
-cd Testing-Kit
-./testing-kit-cli install   # check deps, download configs, generate SSH keys, start containers
-./testing-kit-cli run-tests # run the test suite
-./testing-kit-cli down      # stop containers
+wget https://github.com/TGJLS/Testing-Kit/releases/latest/download/testing-kit-cli.tar.gz
+tar -xf testing-kit-cli.tar.gz
+./testing-kit-cli install
 ```
 
-Other commands:
+`install` checks for Docker, downloads the compose file and default config, generates SSH keys, and starts the containers.
 
-| Command | Description |
-|---|---|
-| `install` | One-shot setup: verify deps, download compose + config, generate SSH keys, start containers |
-| `up` | Start containers (`docker compose up -d`) |
-| `down` | Stop containers |
-| `reset` | Stop containers and wipe volumes |
-| `run-tests` | Trigger test run via API and print results |
+## Using
+
+```sh
+./testing-kit-cli up         # start containers
+./testing-kit-cli run-tests  # run the test suite
+./testing-kit-cli down       # stop containers
+```
+
+Use `reset` instead of `down` to also wipe volumes (removes the Windows disk image — full re-download on next `up`).
 
 ## Docs
 
