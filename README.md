@@ -13,12 +13,20 @@ Useful for developing [Adaptix C2](https://github.com/Adaptix-Framework/AdaptixC
 ```sh
 git clone https://github.com/TGJLS/Testing-Kit
 cd Testing-Kit
-./setup.sh init   # generate SSH keys, render configs
-./setup.sh up     # start Adaptix C2 + Windows containers
-./setup.sh test   # run the test suite
-./setup.sh down   # stop containers
-./setup.sh reset  # wipe volumes
+./testing-kit-cli install   # check deps, download configs, generate SSH keys, start containers
+./testing-kit-cli run-tests # run the test suite
+./testing-kit-cli down      # stop containers
 ```
+
+Other commands:
+
+| Command | Description |
+|---|---|
+| `install` | One-shot setup: verify deps, download compose + config, generate SSH keys, start containers |
+| `up` | Start containers (`docker compose up -d`) |
+| `down` | Stop containers |
+| `reset` | Stop containers and wipe volumes |
+| `run-tests` | Trigger test run via API and print results |
 
 ## Docs
 
