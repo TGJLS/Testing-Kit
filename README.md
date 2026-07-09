@@ -31,6 +31,7 @@ Use `reset` instead of `down` to also wipe volumes (removes the Windows disk ima
 ## Docs
 
 + [Tasks format](docs/tasks.md) — task fields, assertions, capture and variable substitution
++ [API reference](docs/api.md) — REST endpoints for managing preamble and tasks, and triggering test runs
 + [Deprecated Python script](python_script_deprecated/README.md)
 
 ## CI/CD note

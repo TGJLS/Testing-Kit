@@ -46,8 +46,3 @@ ssh:
   terminate: true
   connect_retries: 60
   connect_retry_interval: 20
-  preamble:
-    - 'New-Item -ItemType Directory -Force -Path C:\ci | Out-Null'
-    - 'Set-MpPreference -DisableRealtimeMonitoring $true'
-    - 'Add-MpPreference -ExclusionPath C:\ci'
-    - 'New-NetFirewallRule -DisplayName CI_C2_8080 -Direction Inbound -Protocol TCP -LocalPort 8080 -Action Allow -Profile Any | Out-Null'

@@ -6,6 +6,21 @@ on:
   workflow_dispatch:
 
 jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Run unit tests
+        run: uv run pytest adaptix_testing/tests/ -v
+
   integration-test:
     runs-on: ubuntu-latest
 
@@ -45,11 +60,14 @@ jobs:
           exit 1
 
       - name: Run tests
-        run: ./testing-kit-cli run-tests
+        run: ./testing-kit-cli run-tests | tee test-results.txt
 
-      - name: Print AdaptixC2 logs
+      - name: Upload test results
         if: always()
-        run: docker compose logs adaptixc2
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: test-results.txt
 
       - name: Teardown
         if: always()
