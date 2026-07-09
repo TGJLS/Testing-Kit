@@ -11,6 +11,8 @@ services:
       USER_PORTS: "22"
       DISK_CACHE: "writeback"
       DISK_IO: "threads"
+    devices:
+      - /dev/kvm:/dev/kvm
     volumes:
       - ./ci/oem:/oem:ro
       - windows-data:/storage
