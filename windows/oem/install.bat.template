@@ -1,0 +1,25 @@
+@echo off
+setlocal
+
+REM Extract pre-downloaded OpenSSH portable (no internet required)
+powershell -ExecutionPolicy Bypass -NoProfile -Command "Expand-Archive -Path 'C:\OEM\OpenSSH-Win64.zip' -DestinationPath 'C:\Program Files' -Force"
+
+REM Register sshd as a Windows service (creates sshd_config with correct Match block)
+powershell -ExecutionPolicy Bypass -NoProfile -File "C:\Program Files\OpenSSH-Win64\install-sshd.ps1"
+
+REM Add firewall rule for SSH
+netsh advfirewall firewall add rule name="sshd" dir=in action=allow protocol=TCP localport=22 enable=yes
+
+REM Create ci_runner admin user
+powershell -ExecutionPolicy Bypass -NoProfile -Command "$p = ConvertTo-SecureString 'CiTestOnly!' -AsPlainText -Force; New-LocalUser ci_runner -Password $p -PasswordNeverExpires; Add-LocalGroupMember -Group Administrators -Member ci_runner"
+
+REM Write authorized key (BOM-free — PS 5.1 Set-Content -Encoding utf8 adds BOM which OpenSSH rejects)
+REM Use %ProgramData% (cmd.exe expands it before passing to PS) not $env:ProgramData (single-quoted PS string won't expand)
+if not exist "%ProgramData%\ssh" mkdir "%ProgramData%\ssh"
+powershell -ExecutionPolicy Bypass -NoProfile -Command "$utf8NoBOM = New-Object System.Text.UTF8Encoding($false); [System.IO.File]::WriteAllLines('%ProgramData%\ssh\administrators_authorized_keys', @('{{PUBLIC_KEY}}'), $utf8NoBOM)"
+icacls "%ProgramData%\ssh\administrators_authorized_keys" /inheritance:r /grant "SYSTEM:(F)" /grant "Administrators:(F)"
+
+REM Start sshd
+powershell -ExecutionPolicy Bypass -NoProfile -Command "Set-Service sshd -StartupType Automatic; Set-Service ssh-agent -StartupType Automatic; Start-Service sshd"
+
+endlocal
