@@ -237,3 +237,17 @@ def batch_delete_tasks(conn: sqlite3.Connection, ids: list[int]) -> int:
     cur = conn.execute(f"DELETE FROM tasks WHERE id IN ({placeholders})", ids)
     conn.commit()
     return cur.rowcount
+
+
+def seed_tasks_from_yaml(conn: sqlite3.Connection, path: str) -> int:
+    """Insert tasks from a YAML seed file if the tasks table is currently empty."""
+    if get_tasks(conn):
+        return 0
+    import yaml
+    with open(path) as f:
+        data = yaml.safe_load(f)
+    tasks = data.get("tasks", [])
+    if not tasks:
+        return 0
+    batch_append_tasks(conn, tasks)
+    return len(tasks)

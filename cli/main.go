@@ -174,7 +174,7 @@ func downloadFiles() {
 	}
 	fmt.Println("✓ docker-compose.yml downloaded")
 
-	for _, f := range []string{"config/config.yaml"} {
+	for _, f := range []string{"config/config.yaml", "config/tasks.yaml"} {
 		if _, err := os.Stat(f); err == nil {
 			fmt.Printf("⚠  %s already exists — skipping\n", f)
 			continue
