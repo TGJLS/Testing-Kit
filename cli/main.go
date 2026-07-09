@@ -117,6 +117,7 @@ func cmdInstall() {
 	downloadFiles()
 	checkBtrfs()
 	generateSSHKey()
+	downloadOpenSSH()
 	cmdCompose("up", "-d")
 }
 
@@ -216,6 +217,21 @@ func checkBtrfs() {
 		"-v", "testing-kit_windows-data:/data", "alpine", "sh", "-c",
 		"apk add --no-cache e2fsprogs-extra >/dev/null 2>&1; chattr +C /data").Run()
 	fmt.Println("✓ Disabled copy-on-write on testing-kit_windows-data")
+}
+
+func downloadOpenSSH() {
+	const dest = "ci/oem/OpenSSH-Win64.zip"
+	const url = "https://github.com/PowerShell/Win32-OpenSSH/releases/latest/download/OpenSSH-Win64.zip"
+
+	if _, err := os.Stat(dest); err == nil {
+		fmt.Printf("⚠  %s already exists — skipping\n", dest)
+		return
+	}
+	fmt.Println("Downloading OpenSSH-Win64.zip for Windows VM setup...")
+	if err := downloadToFile(url, dest); err != nil {
+		die(fmt.Sprintf("Failed to download OpenSSH-Win64.zip: %v", err))
+	}
+	fmt.Printf("✓ OpenSSH-Win64.zip downloaded to %s\n", dest)
 }
 
 func generateSSHKey() {
