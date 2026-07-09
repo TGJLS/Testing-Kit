@@ -1,15 +1,35 @@
+import logging
 import os
 import sqlite3
+from contextlib import asynccontextmanager
 from typing import Generator, Optional
 from fastapi import Depends, FastAPI, HTTPException, Response
 from pydantic import BaseModel
 from adaptix_testing import db as _db
 from adaptix_testing import runner as _runner
 
-app = FastAPI(title="Testing Kit API", version="1.0.0")
-
 DB_PATH = os.environ.get("TESTING_KIT_DB", "testing_kit.db")
 CONFIG_PATH = os.environ.get("CONFIG_PATH", "config.yaml")
+TASKS_SEED_PATH = os.environ.get("TASKS_SEED_PATH", "")
+
+_log = logging.getLogger("uvicorn.error")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    if TASKS_SEED_PATH:
+        try:
+            conn = _db.open_db(DB_PATH)
+            n = _db.seed_tasks_from_yaml(conn, TASKS_SEED_PATH)
+            conn.close()
+            if n:
+                _log.info("Seeded %d tasks from %s", n, TASKS_SEED_PATH)
+        except Exception as exc:
+            _log.warning("Task seeding failed: %s", exc)
+    yield
+
+
+app = FastAPI(title="Testing Kit API", version="1.0.0", lifespan=lifespan)
 
 
 def get_conn() -> Generator[sqlite3.Connection, None, None]:

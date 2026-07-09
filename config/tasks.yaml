@@ -1,0 +1,24 @@
+# Default tasks seeded into the DB on first startup.
+# After install, manage tasks via the API (POST /v1/tasks).
+tasks:
+  # Verify the agent is running as the CI user
+  - cmdline: "shell whoami"
+    expected: "ci_runner"
+
+  # Verify the username matches the expected pattern (regex)
+  - cmdline: "shell whoami"
+    expected_regex: "(?i)ci_runner"
+
+  # Verify filesystem access — C:\ci is where the agent was dropped
+  - cmdline: "shell dir C:\\ci"
+    expected: "agent.exe"
+    not_expected: "File Not Found"
+
+  # Verify whoami output contains no error indicators (negative regex)
+  - cmdline: "shell whoami"
+    not_expected_regex: "(?i)error|access.denied|failed"
+
+  # Unknown commands should be rejected (allowed_to_fail marks this as xfail)
+  - cmdline: "xyzzy frobnicate"
+    expected: "will never succeed"
+    allowed_to_fail: true
