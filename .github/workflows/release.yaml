@@ -10,8 +10,40 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      packages: write
+
     steps:
       - uses: actions/checkout@v4
-      - run: gh release create ${{ github.ref_name }} --generate-notes
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Add version tag to Docker image
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          docker pull ghcr.io/tgjls/testing-kit:latest
+          docker tag ghcr.io/tgjls/testing-kit:latest ghcr.io/tgjls/testing-kit:${VERSION}
+          docker push ghcr.io/tgjls/testing-kit:${VERSION}
+
+      - name: Build CLI
+        run: |
+          go build \
+            -ldflags "-X main.version=${GITHUB_REF_NAME} -X 'main.repoOwner=TheGr3atJosh/Testing-Kit'" \
+            -o testing-kit-cli \
+            ./cli
+
+      - name: Package CLI
+        run: tar -czf testing-kit-cli.tar.gz testing-kit-cli
+
+      - name: Create GitHub release
+        run: gh release create ${{ github.ref_name }} --generate-notes testing-kit-cli.tar.gz
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

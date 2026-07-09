@@ -12,14 +12,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup (KVM check + SSH keygen + render configs)
-        run: bash setup.sh init
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
 
-      - name: Start infra
-        run: bash setup.sh up
+      - name: Build Docker image
+        run: docker build -t ghcr.io/tgjls/testing-kit:2.0.0 .
+
+      - name: Build CLI
+        run: |
+          go build \
+            -ldflags "-X main.version=${GITHUB_SHA} -X 'main.repoOwner=TheGr3atJosh/Testing-Kit'" \
+            -o testing-kit-cli \
+            ./cli
+
+      - name: Package CLI
+        run: tar -czf testing-kit-cli.tar.gz testing-kit-cli
+
+      - name: Simulate install
+        run: |
+          tar -xvzf testing-kit-cli.tar.gz
+          ./testing-kit-cli install
 
       - name: Run tests
-        run: bash setup.sh test
+        run: ./testing-kit-cli run-tests
 
       - name: Print AdaptixC2 logs
         if: always()
@@ -27,4 +43,4 @@ jobs:
 
       - name: Teardown
         if: always()
-        run: bash setup.sh reset
+        run: ./testing-kit-cli reset
