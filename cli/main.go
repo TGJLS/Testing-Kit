@@ -431,8 +431,10 @@ func cmdAddExtender(args []string) {
 	fmt.Print("Waiting for adaptixc2")
 	for i := 0; i < 30; i++ {
 		time.Sleep(2 * time.Second)
-		r, err := http.Get(apiURL + "/health")
-		if err == nil && r.StatusCode == http.StatusOK {
+		out, err := exec.Command("docker", "exec", "adaptixc2",
+			"sh", "-c", "ss -tln 2>/dev/null | grep -q ':4321'").Output()
+		_ = out
+		if err == nil {
 			fmt.Println("\n✓ adaptixc2 ready")
 			return
 		}

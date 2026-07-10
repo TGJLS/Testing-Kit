@@ -9,6 +9,19 @@ import dukpy
 
 _MOCK_JS = """
 var _fields = [];
+function _widget(t) {
+    var w = {t: t};
+    var noop = function() { return w; };
+    w.setEnabled = noop; w.clear = noop; w.connect = noop;
+    w.addItem = noop; w.addItems = noop; w.addWidget = noop;
+    w.addRow = noop; w.addColumn = noop; w.setLayout = noop; w.setPanel = noop;
+    w.setRange = noop; w.setValue = noop; w.setChecked = noop;
+    w.setPlaceholder = noop; w.setReadOnly = noop;
+    w.setCurrentIndex = noop; w.setSelection = noop;
+    w.setColumnStretch = noop; w.setSpacing = noop;
+    w.getSelection = function() { return ''; };
+    return w;
+}
 var form = {
     create_container: function() {
         return {
@@ -17,21 +30,29 @@ var form = {
             }
         };
     },
-    create_combo: function(opts) { return {t: 'combo'}; },
-    create_spin: function(mn, mx) { return {t: 'spin'}; },
-    create_checkbox: function(label) { return {t: 'bool'}; },
-    create_textline: function(ph) { return {t: 'string'}; },
-    create_textmulti: function(ph) { return {t: 'string'}; },
-    create_file: function(label) { return {t: 'file'}; },
-    create_dateline: function() { return {t: 'date'}; },
-    create_timeline: function() { return {t: 'time'}; },
-    create_groupbox: function(label, w) { return w || {t: 'bool'}; },
+    create_combo: function() { return _widget('combo'); },
+    create_spin: function() { return _widget('spin'); },
+    create_checkbox: function() { return _widget('bool'); },
+    create_check: function() { return _widget('bool'); },
+    create_textline: function() { return _widget('string'); },
+    create_textmulti: function() { return _widget('string'); },
+    create_file: function() { return _widget('file'); },
+    create_selector_file: function() { return _widget('file'); },
+    create_label: function() { return _widget(''); },
+    create_dateline: function() { return _widget('date'); },
+    create_timeline: function() { return _widget('time'); },
+    create_groupbox: function(label, w) { return w && w.t ? w : _widget('bool'); },
+    create_gridlayout: function() { return _widget(''); },
+    create_hlayout: function() { return _widget(''); },
+    create_panel: function() { return _widget(''); },
+    connect: function() {},
 };
 function getNetworkInterfaces() { return ['0.0.0.0']; }
 var ax = {
     script_dir: function() { return ''; },
     script_import: function() {},
     script_load: function() {},
+    interfaces: function() { return ['0.0.0.0']; },
     register_commands_group: function() {},
     create_command: function() {
         var c = {
@@ -69,13 +90,25 @@ _SPECIAL: dict[str, dict] = {
 }
 
 
+def _es5_compat(js: str) -> str:
+    """Downgrade ES6 syntax that Duktape doesn't support."""
+    js = re.sub(r'\b(let|const)\b', 'var', js)
+    # for (var x of y) { body } → y.forEach(function(x) { body })
+    js = re.sub(
+        r'for\s*\(\s*var\s+(\w+)\s+of\s+([^)]+)\)\s*\{([^{}]*)\}',
+        r'\2.forEach(function(\1) {\3})',
+        js,
+    )
+    return js
+
+
 def parse_axs_fields(axs_text: str, fn_name: str) -> list[dict]:
     """Evaluate axs_text with mock globals; call fn_name; return raw [{key,widget,def}]."""
     arg = "'create'" if fn_name == "ListenerUI" else "''"
     try:
         interp = dukpy.JSInterpreter()
         interp.evaljs(_MOCK_JS)
-        interp.evaljs(axs_text)
+        interp.evaljs(_es5_compat(axs_text))
         interp.evaljs("_fields = [];")
         interp.evaljs(f"if (typeof {fn_name} !== 'undefined') {{ {fn_name}({arg}); }}")
         raw = interp.evaljs("JSON.stringify(_fields)")
