@@ -1,34 +1,26 @@
 #!/usr/bin/env bash
 # Build and install Kharon extender inside the adaptixc2 container.
-# The repo is already cloned to /app/extenders/kharon by Testing-Kit.
+# The repo is cloned to /app/userextenders/kharon by Testing-Kit.
 set -euo pipefail
 
 KHARON_DIR=/app/userextenders/kharon
 
 if ! command -v go &>/dev/null; then
     apt-get update -qq
-    apt-get install -y -qq golang-go
+    apt-get install -y -qq golang-go make
+elif ! command -v make &>/dev/null; then
+    apt-get update -qq
+    apt-get install -y -qq make
 fi
 
-GO_VERSION=$(go version | awk '{print $3}')
-echo "Using Go: ${GO_VERSION}"
+echo "Using Go: $(go version)"
 
 echo "Building Kharon listener..."
-cd "${KHARON_DIR}"
-if [[ -f Makefile ]]; then
-    make listener
-else
-    cd "${KHARON_DIR}/listener_kharon_http"
-    go build -buildmode=plugin -trimpath -o listener.so .
-fi
+cd "${KHARON_DIR}/listener_kharon_http"
+make all
 
-echo "Building Kharon agent..."
-cd "${KHARON_DIR}"
-if [[ -f Makefile ]]; then
-    make agent
-else
-    cd "${KHARON_DIR}/agent_kharon"
-    go build -buildmode=plugin -trimpath -o agent.so .
-fi
+echo "Building Kharon agent plugin..."
+cd "${KHARON_DIR}/agent_kharon"
+make plugin
 
 echo "Kharon build complete."
