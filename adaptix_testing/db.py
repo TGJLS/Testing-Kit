@@ -21,6 +21,26 @@ def create_tables(conn: sqlite3.Connection) -> None:
             allowed_to_fail     INTEGER NOT NULL DEFAULT 0,
             capture             TEXT
         );
+        CREATE TABLE IF NOT EXISTS extenders (
+            id                        TEXT PRIMARY KEY,
+            name                      TEXT NOT NULL,
+            git_url                   TEXT NOT NULL,
+            extender_type             TEXT NOT NULL,
+            status                    TEXT NOT NULL DEFAULT 'needs_input',
+            listener_name             TEXT,
+            agent_name                TEXT,
+            compatible_listeners      TEXT,
+            is_active_listener        INTEGER NOT NULL DEFAULT 0,
+            is_active_agent           INTEGER NOT NULL DEFAULT 0,
+            is_active_bof             INTEGER NOT NULL DEFAULT 0,
+            listener_schema           TEXT,
+            agent_schema              TEXT,
+            container_path            TEXT,
+            listener_config_rel_paths TEXT,
+            agent_config_rel_paths    TEXT,
+            bof_axs_rel_paths         TEXT,
+            created_at                TEXT NOT NULL
+        );
     """)
     conn.commit()
 
@@ -251,3 +271,139 @@ def seed_tasks_from_yaml(conn: sqlite3.Connection, path: str) -> int:
         return 0
     batch_append_tasks(conn, tasks)
     return len(tasks)
+
+
+# ── Extenders ─────────────────────────────────────────────────────────────────
+
+def add_extender(conn: sqlite3.Connection, data: dict) -> None:
+    conn.execute(
+        """INSERT INTO extenders
+           (id, name, git_url, extender_type, status,
+            listener_name, agent_name, compatible_listeners,
+            is_active_listener, is_active_agent, is_active_bof,
+            listener_schema, agent_schema, container_path,
+            listener_config_rel_paths, agent_config_rel_paths,
+            bof_axs_rel_paths, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            data["id"], data["name"], data["git_url"],
+            data["extender_type"], data.get("status", "needs_input"),
+            data.get("listener_name"), data.get("agent_name"),
+            data.get("compatible_listeners"),
+            int(data.get("is_active_listener", 0)),
+            int(data.get("is_active_agent", 0)),
+            int(data.get("is_active_bof", 0)),
+            data.get("listener_schema"), data.get("agent_schema"),
+            data.get("container_path"),
+            data.get("listener_config_rel_paths", "[]"),
+            data.get("agent_config_rel_paths", "[]"),
+            data.get("bof_axs_rel_paths", "[]"),
+            data["created_at"],
+        ),
+    )
+    conn.commit()
+
+
+def get_extender(conn: sqlite3.Connection, id: str) -> Optional[dict]:
+    row = conn.execute("SELECT * FROM extenders WHERE id=?", (id,)).fetchone()
+    return dict(row) if row else None
+
+
+def get_extender_by_git_url(conn: sqlite3.Connection, git_url: str) -> Optional[dict]:
+    row = conn.execute("SELECT * FROM extenders WHERE git_url=?", (git_url,)).fetchone()
+    return dict(row) if row else None
+
+
+def get_extenders(conn: sqlite3.Connection) -> list[dict]:
+    return [dict(r) for r in conn.execute(
+        "SELECT * FROM extenders ORDER BY created_at"
+    )]
+
+
+def update_extender(conn: sqlite3.Connection, id: str, updates: dict) -> bool:
+    row = conn.execute("SELECT * FROM extenders WHERE id=?", (id,)).fetchone()
+    if row is None:
+        return False
+    existing = dict(row)
+    m = {**existing, **updates}
+    conn.execute(
+        """UPDATE extenders
+           SET name=?, git_url=?, extender_type=?, status=?,
+               listener_name=?, agent_name=?, compatible_listeners=?,
+               is_active_listener=?, is_active_agent=?, is_active_bof=?,
+               listener_schema=?, agent_schema=?, container_path=?,
+               listener_config_rel_paths=?, agent_config_rel_paths=?,
+               bof_axs_rel_paths=?
+           WHERE id=?""",
+        (
+            m["name"], m["git_url"], m["extender_type"], m["status"],
+            m.get("listener_name"), m.get("agent_name"),
+            m.get("compatible_listeners"),
+            int(m.get("is_active_listener", 0)),
+            int(m.get("is_active_agent", 0)),
+            int(m.get("is_active_bof", 0)),
+            m.get("listener_schema"), m.get("agent_schema"),
+            m.get("container_path"),
+            m.get("listener_config_rel_paths", "[]"),
+            m.get("agent_config_rel_paths", "[]"),
+            m.get("bof_axs_rel_paths", "[]"),
+            id,
+        ),
+    )
+    conn.commit()
+    return True
+
+
+def delete_extender(conn: sqlite3.Connection, id: str) -> bool:
+    cur = conn.execute("DELETE FROM extenders WHERE id=?", (id,))
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def get_active_listener_extender(conn: sqlite3.Connection) -> Optional[dict]:
+    row = conn.execute(
+        "SELECT * FROM extenders WHERE is_active_listener=1"
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def get_active_agent_extender(conn: sqlite3.Connection) -> Optional[dict]:
+    row = conn.execute(
+        "SELECT * FROM extenders WHERE is_active_agent=1"
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def get_active_bof_extenders(conn: sqlite3.Connection) -> list[dict]:
+    return [dict(r) for r in conn.execute(
+        "SELECT * FROM extenders WHERE is_active_bof=1"
+    )]
+
+
+def set_active_listener(conn: sqlite3.Connection, id: str) -> None:
+    conn.execute("UPDATE extenders SET is_active_listener=0 WHERE is_active_listener=1")
+    conn.execute("UPDATE extenders SET is_active_listener=1 WHERE id=?", (id,))
+    conn.commit()
+
+
+def set_active_agent(conn: sqlite3.Connection, id: str) -> None:
+    conn.execute("UPDATE extenders SET is_active_agent=0 WHERE is_active_agent=1")
+    conn.execute("UPDATE extenders SET is_active_agent=1 WHERE id=?", (id,))
+    conn.commit()
+
+
+def deactivate_all_listeners(conn: sqlite3.Connection) -> None:
+    conn.execute("UPDATE extenders SET is_active_listener=0")
+    conn.commit()
+
+
+def deactivate_all_agents(conn: sqlite3.Connection) -> None:
+    conn.execute("UPDATE extenders SET is_active_agent=0")
+    conn.commit()
+
+
+def set_active_bof(conn: sqlite3.Connection, id: str, active: bool) -> None:
+    conn.execute(
+        "UPDATE extenders SET is_active_bof=? WHERE id=?", (int(active), id)
+    )
+    conn.commit()
