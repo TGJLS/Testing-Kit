@@ -221,6 +221,7 @@ jobs:
         run: |
           ./testing-kit-cli add-extender \
             --install-script .github/cicd/install-extension-kit.sh \
+            --no-restart \
             https://github.com/Adaptix-Framework/Extension-Kit
 
       - name: Seed Extension-Kit tasks
