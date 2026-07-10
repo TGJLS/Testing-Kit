@@ -51,6 +51,18 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
+      - name: Verify KVM acceleration
+        run: |
+          if [ -e /dev/kvm ]; then
+            if sudo apt-get install -y -qq cpu-checker 2>/dev/null && kvm-ok 2>&1 | grep -q "KVM acceleration can be used"; then
+              echo "✓ KVM hardware acceleration confirmed"
+            else
+              echo "⚠ /dev/kvm present but hardware acceleration unavailable — Windows boot may exceed timeout"
+            fi
+          else
+            echo "⚠ /dev/kvm not found — running without KVM"
+          fi
+
       - name: Simulate install
         run: |
           tar -xvzf testing-kit-cli.tar.gz
