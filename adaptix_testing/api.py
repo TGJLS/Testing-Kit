@@ -1,12 +1,22 @@
+import json
 import logging
 import os
 import sqlite3
+import subprocess
+import uuid
 from contextlib import asynccontextmanager
+from datetime import datetime
 from typing import Generator, Optional
 from fastapi import Depends, FastAPI, HTTPException, Response
 from pydantic import BaseModel
 from adaptix_testing import db as _db
+from adaptix_testing import extender_parser as _ep
+from adaptix_testing import profile_manager as _pm
 from adaptix_testing import runner as _runner
+
+ADAPTIX_PROFILE_PATH     = _pm.PROFILE_PATH
+EXTENDERS_HOST_PATH      = _pm.EXTENDERS_HOST_PATH
+EXTENDERS_CONTAINER_PATH = _pm.EXTENDERS_CONTAINER_PATH
 
 DB_PATH = os.environ.get("TESTING_KIT_DB", "testing_kit.db")
 CONFIG_PATH = os.environ.get("CONFIG_PATH", "config.yaml")
@@ -221,4 +231,242 @@ def update_task(
 def delete_task(id: int, conn: sqlite3.Connection = Depends(get_conn)):
     if not _db.delete_task(conn, id):
         raise HTTPException(status_code=404)
+    return Response(status_code=204)
+
+
+# ── Extender models ───────────────────────────────────────────────────────────
+
+class ExtenderCreate(BaseModel):
+    git_url: str
+    name: Optional[str] = None
+    overrides: Optional[dict] = None
+
+
+class ExtenderPatch(BaseModel):
+    overrides: dict
+
+
+# ── Extender helpers ──────────────────────────────────────────────────────────
+
+def _collect_required(parsed: dict) -> dict:
+    result: dict = {"listener": [], "agent": []}
+    for role, key in [("listener", "listener_schema"), ("agent", "agent_schema")]:
+        schema = parsed.get(key)
+        if not schema:
+            continue
+        for field_key, field in schema.items():
+            if field["source"] == "required" and field.get("value") is None:
+                result[role].append({
+                    "key": field_key,
+                    "widget": field.get("widget", "string"),
+                    "hint": field.get("hint"),
+                })
+    return result
+
+
+def _apply_overrides(schema: Optional[dict], overrides: dict) -> Optional[dict]:
+    if not schema or not overrides:
+        return schema
+    schema = {k: dict(v) for k, v in schema.items()}
+    for key, val in overrides.items():
+        if key in schema:
+            schema[key]["value"] = val
+            if schema[key]["source"] == "required" and val is not None:
+                schema[key]["source"] = "auto"
+    return schema
+
+
+def _extender_name_from_url(git_url: str) -> str:
+    return git_url.rstrip("/").rstrip(".git").split("/")[-1].lower()
+
+
+# ── Extender routes ───────────────────────────────────────────────────────────
+
+@app.post("/v1/extenders")
+def create_extender(body: ExtenderCreate, conn: sqlite3.Connection = Depends(get_conn)):
+    existing = _db.get_extender_by_git_url(conn, body.git_url)
+    if existing:
+        return existing
+
+    name = body.name or _extender_name_from_url(body.git_url)
+    dest = os.path.join(EXTENDERS_HOST_PATH, name)
+
+    if not os.path.exists(dest):
+        try:
+            _ep.clone_repo(body.git_url, dest)
+        except subprocess.CalledProcessError as e:
+            raise HTTPException(400, f"Git clone failed: {getattr(e, 'stderr', str(e))}")
+
+    try:
+        parsed = _ep.parse_extender_repo(dest, EXTENDERS_CONTAINER_PATH, name)
+    except Exception as e:
+        raise HTTPException(500, f"Parse failed: {e}")
+
+    overrides = body.overrides or {}
+    ls = _apply_overrides(parsed.get("listener_schema"), overrides.get("listener", {}))
+    as_ = _apply_overrides(parsed.get("agent_schema"),  overrides.get("agent", {}))
+
+    required = _collect_required({"listener_schema": ls, "agent_schema": as_})
+    status = "ready" if not required["listener"] and not required["agent"] else "needs_input"
+
+    ext_id = uuid.uuid4().hex[:8]
+    _db.add_extender(conn, {
+        "id": ext_id,
+        "name": parsed["name"],
+        "git_url": body.git_url,
+        "extender_type": parsed["extender_type"],
+        "status": status,
+        "listener_name": parsed.get("listener_name"),
+        "agent_name": parsed.get("agent_name"),
+        "compatible_listeners": json.dumps(parsed.get("compatible_listeners", [])),
+        "listener_schema": json.dumps(ls) if ls else None,
+        "agent_schema": json.dumps(as_) if as_ else None,
+        "container_path": parsed["container_path"],
+        "listener_config_rel_paths": json.dumps(parsed.get("listener_config_rel_paths", [])),
+        "agent_config_rel_paths": json.dumps(parsed.get("agent_config_rel_paths", [])),
+        "bof_axs_rel_paths": json.dumps(parsed.get("bof_axs_rel_paths", [])),
+        "created_at": datetime.utcnow().isoformat(),
+    })
+
+    response = {"id": ext_id, "name": parsed["name"],
+                "type": parsed["extender_type"], "status": status}
+    if status == "needs_input":
+        response["required_fields"] = required
+    return response
+
+
+@app.patch("/v1/extenders/{id}")
+def patch_extender(id: str, body: ExtenderPatch, conn: sqlite3.Connection = Depends(get_conn)):
+    ext = _db.get_extender(conn, id)
+    if not ext:
+        raise HTTPException(404)
+
+    ls  = json.loads(ext["listener_schema"]) if ext.get("listener_schema") else None
+    as_ = json.loads(ext["agent_schema"])    if ext.get("agent_schema")    else None
+
+    ls  = _apply_overrides(ls,  body.overrides.get("listener", {}))
+    as_ = _apply_overrides(as_, body.overrides.get("agent", {}))
+
+    required = _collect_required({"listener_schema": ls, "agent_schema": as_})
+    status = "ready" if not required["listener"] and not required["agent"] else "needs_input"
+
+    updates: dict = {"status": status}
+    if ls is not None:
+        updates["listener_schema"] = json.dumps(ls)
+    if as_ is not None:
+        updates["agent_schema"] = json.dumps(as_)
+    _db.update_extender(conn, id, updates)
+
+    resp = {"id": id, "status": status}
+    if status == "needs_input":
+        resp["required_fields"] = required
+    return resp
+
+
+@app.get("/v1/extenders")
+def list_extenders(conn: sqlite3.Connection = Depends(get_conn)):
+    rows = _db.get_extenders(conn)
+    for r in rows:
+        r["is_active_listener"] = bool(r["is_active_listener"])
+        r["is_active_agent"]    = bool(r["is_active_agent"])
+        r["is_active_bof"]      = bool(r["is_active_bof"])
+    return rows
+
+
+@app.get("/v1/extenders/{id}")
+def get_extender(id: str, conn: sqlite3.Connection = Depends(get_conn)):
+    ext = _db.get_extender(conn, id)
+    if not ext:
+        raise HTTPException(404)
+    ext["is_active_listener"] = bool(ext["is_active_listener"])
+    ext["is_active_agent"]    = bool(ext["is_active_agent"])
+    ext["is_active_bof"]      = bool(ext["is_active_bof"])
+    if ext.get("listener_schema"):
+        ext["listener_schema"] = json.loads(ext["listener_schema"])
+    if ext.get("agent_schema"):
+        ext["agent_schema"] = json.loads(ext["agent_schema"])
+    if ext.get("compatible_listeners"):
+        ext["compatible_listeners"] = json.loads(ext["compatible_listeners"])
+    return ext
+
+
+@app.post("/v1/extenders/{id}/activate")
+def activate_extender(id: str, conn: sqlite3.Connection = Depends(get_conn)):
+    ext = _db.get_extender(conn, id)
+    if not ext:
+        raise HTTPException(404)
+    if ext["status"] == "needs_input":
+        raise HTTPException(400, "Extender has unfilled required fields")
+
+    ext_type       = ext["extender_type"]
+    container_path = ext["container_path"]
+
+    if ext_type == "listener":
+        active_agent = _db.get_active_agent_extender(conn)
+        if active_agent:
+            compat = json.loads(active_agent.get("compatible_listeners") or "[]")
+            if ext["listener_name"] not in compat:
+                raise HTTPException(409, detail=(
+                    f"Active agent '{active_agent['agent_name']}' is not compatible with "
+                    f"listener '{ext['listener_name']}'. Compatible listeners: {compat}"
+                ))
+        config_rels = json.loads(ext.get("listener_config_rel_paths") or "[]")
+        _pm.add_extender_entries(ADAPTIX_PROFILE_PATH, container_path, config_rels, [])
+        _db.set_active_listener(conn, id)
+
+    elif ext_type == "agent":
+        active_listener = _db.get_active_listener_extender(conn)
+        if active_listener:
+            my_compat = json.loads(ext.get("compatible_listeners") or "[]")
+            if active_listener["listener_name"] not in my_compat:
+                raise HTTPException(409, detail=(
+                    f"Agent '{ext['agent_name']}' is not compatible with "
+                    f"listener '{active_listener['listener_name']}'. "
+                    f"Compatible: {my_compat}"
+                ))
+        config_rels = json.loads(ext.get("agent_config_rel_paths") or "[]")
+        _pm.add_extender_entries(ADAPTIX_PROFILE_PATH, container_path, config_rels, [])
+        _db.set_active_agent(conn, id)
+
+    elif ext_type == "listener+agent":
+        l_rels = json.loads(ext.get("listener_config_rel_paths") or "[]")
+        a_rels = json.loads(ext.get("agent_config_rel_paths") or "[]")
+        _pm.add_extender_entries(ADAPTIX_PROFILE_PATH, container_path, l_rels + a_rels, [])
+        _db.set_active_listener(conn, id)
+        _db.set_active_agent(conn, id)
+
+    elif ext_type == "bof":
+        axs_rels = json.loads(ext.get("bof_axs_rel_paths") or "[]")
+        _pm.add_extender_entries(ADAPTIX_PROFILE_PATH, container_path, [], axs_rels)
+        _db.set_active_bof(conn, id, True)
+
+    return {"ok": True}
+
+
+@app.post("/v1/extenders/{id}/deactivate")
+def deactivate_extender(id: str, conn: sqlite3.Connection = Depends(get_conn)):
+    ext = _db.get_extender(conn, id)
+    if not ext:
+        raise HTTPException(404)
+
+    _pm.remove_extender_entries(ADAPTIX_PROFILE_PATH, ext["container_path"])
+
+    if ext["extender_type"] in ("listener", "listener+agent"):
+        _db.deactivate_all_listeners(conn)
+    if ext["extender_type"] in ("agent", "listener+agent"):
+        _db.deactivate_all_agents(conn)
+    if ext["extender_type"] == "bof":
+        _db.set_active_bof(conn, id, False)
+
+    return {"ok": True}
+
+
+@app.delete("/v1/extenders/{id}", status_code=204)
+def delete_extender(id: str, conn: sqlite3.Connection = Depends(get_conn)):
+    ext = _db.get_extender(conn, id)
+    if not ext:
+        raise HTTPException(404)
+    if ext["is_active_listener"] or ext["is_active_agent"] or ext["is_active_bof"]:
+        raise HTTPException(409, "Cannot delete an active extender; deactivate first")
+    _db.delete_extender(conn, id)
     return Response(status_code=204)
