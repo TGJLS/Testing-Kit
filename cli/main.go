@@ -429,7 +429,7 @@ func cmdAddExtender(args []string) {
 	}
 
 	fmt.Print("Waiting for adaptixc2")
-	for i := 0; i < 30; i++ {
+	for i := 0; i < 150; i++ {
 		time.Sleep(2 * time.Second)
 		out, err := exec.Command("docker", "exec", "adaptixc2",
 			"sh", "-c", "ss -tln 2>/dev/null | grep -q ':4321'").Output()
@@ -440,5 +440,5 @@ func cmdAddExtender(args []string) {
 		}
 		fmt.Print(".")
 	}
-	die("adaptixc2 did not become healthy within 60s after restart")
+	die("adaptixc2 did not become healthy within 300s after restart")
 }
