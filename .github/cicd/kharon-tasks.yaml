@@ -1,0 +1,17 @@
+tasks:
+  - cmdline: "shell whoami"
+    expected: "ci_runner"
+
+  - cmdline: "shell hostname"
+    expected_regex: "(?i)win|desktop|server"
+
+  - cmdline: "shell dir C:\\"
+    expected: "Windows"
+    not_expected: "File Not Found"
+
+  - cmdline: "shell echo kharon_test_ok"
+    expected: "kharon_test_ok"
+
+  - cmdline: "xyzzy frobnicate"
+    expected: "will never succeed"
+    allowed_to_fail: true
