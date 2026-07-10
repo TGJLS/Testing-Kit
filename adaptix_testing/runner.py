@@ -642,12 +642,20 @@ def run_tests(config_path: str, conn) -> dict:
     base_url = build_base_url(cfg)
     operator = cfg["operator"]
 
-    try:
-        token = login(base_url, operator)
-    except requests.exceptions.ConnectionError:
-        raise RuntimeError(f"Connection refused — is the Adaptix server running at {base_url}?")
-    except requests.exceptions.HTTPError as e:
-        raise RuntimeError(f"Login failed: {e}")
+    deadline = time.time() + 60
+    token = None
+    while True:
+        try:
+            token = login(base_url, operator)
+            break
+        except requests.exceptions.ConnectionError:
+            if time.time() >= deadline:
+                raise RuntimeError(
+                    f"Connection refused — is the Adaptix server running at {base_url}?"
+                )
+            time.sleep(3)
+        except requests.exceptions.HTTPError as e:
+            raise RuntimeError(f"Login failed: {e}")
     headers = {"Authorization": f"Bearer {token}"}
 
     setup_cfg = cfg.get("setup")

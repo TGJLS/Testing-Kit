@@ -17,6 +17,7 @@ services:
     restart: unless-stopped
 
   adaptixc2:
+    container_name: adaptixc2
     image: ghcr.io/tgjls/adaptixc2:1.2
     networks:
       ci-net:

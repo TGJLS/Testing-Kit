@@ -77,12 +77,28 @@ jobs:
           echo "testing-kit API did not become ready in time"
           exit 1
 
+      - name: Wait for adaptixc2
+        run: |
+          for i in $(seq 1 90); do
+            docker compose exec testing-kit python3 -c \
+              "import socket,sys; socket.create_connection(('adaptixc2',4321),2).close()" \
+              2>/dev/null && { echo '✓ adaptixc2 ready'; exit 0; }
+            sleep 2
+          done
+          docker compose logs adaptixc2
+          echo 'adaptixc2 did not become ready in time'
+          exit 1
+
       - name: Run tests
         run: ./testing-kit-cli run-tests
 
       - name: Print testing-kit logs
         if: always()
         run: docker compose logs testing-kit
+
+      - name: Print adaptixc2 logs
+        if: always()
+        run: docker compose logs adaptixc2
 
       - name: Teardown
         if: always()
