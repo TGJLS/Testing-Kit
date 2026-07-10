@@ -124,18 +124,29 @@ def _resolve_agent_profile(setup_cfg, project, listener_name):
 def _resolve_schema_value(key: str, field: dict, cfg: dict, port_bind: int) -> object:
     """Resolve a single schema field to its runtime value."""
     source = field["source"]
+    widget = field.get("widget", "string")
     if source == "auto":
-        return field["value"]
-    if source == "generate":
+        val = field["value"]
+    elif source == "generate":
         return secrets.token_hex(16)
-    if source == "network":
+    elif source == "network":
         host = urlparse(cfg["server"]["url"]).hostname
         return f"{host}:{port_bind}"
-    if source == "required":
+    elif source == "required":
         if field.get("value") is None:
             raise RuntimeError(f"Required field '{key}' has no value set — patch via PATCH /v1/extenders/{{id}}")
-        return field["value"]
-    return field.get("value")
+        val = field["value"]
+    else:
+        val = field.get("value")
+    if isinstance(val, str):
+        if widget == "bool":
+            return val.lower() in ("true", "1", "yes")
+        if widget == "spin":
+            try:
+                return int(val)
+            except (ValueError, TypeError):
+                pass
+    return val
 
 
 def _resolve_listener_from_extender(extender: dict, cfg: dict) -> dict:
@@ -673,8 +684,11 @@ def run_tests(config_path: str, conn) -> dict:
         _create_listener_from_profile(base_url, headers, listener_profile)
         output_path_agent = setup_cfg.get("agent_output", "/tmp/ci_agent.exe")
 
-        if active_agent_ext:
+        if active_agent_ext and active_agent_ext.get("agent_schema"):
             agent_profile = _resolve_agent_from_extender(active_agent_ext, cfg, listener_profile["name"])
+        elif active_agent_ext:
+            agent_name = active_agent_ext.get("agent_name") or "extender"
+            agent_profile = {"agent": agent_name, "listener": listener_profile["name"], "config": "{}"}
         else:
             agent_profile = _resolve_agent_profile(setup_cfg, project, listener_profile["name"])
 
@@ -823,8 +837,11 @@ def main():
 
             output_path_agent = setup_cfg.get("agent_output", "./generated_agent")
 
-            if active_agent_ext:
+            if active_agent_ext and active_agent_ext.get("agent_schema"):
                 agent_profile = _resolve_agent_from_extender(active_agent_ext, cfg, listener_profile["name"])
+            elif active_agent_ext:
+                agent_name = active_agent_ext.get("agent_name") or "extender"
+                agent_profile = {"agent": agent_name, "listener": listener_profile["name"], "config": "{}"}
             else:
                 agent_profile = _resolve_agent_profile(setup_cfg, project, listener_profile["name"])
 

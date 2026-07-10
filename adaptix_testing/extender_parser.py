@@ -53,6 +53,10 @@ var ax = {
     script_import: function() {},
     script_load: function() {},
     interfaces: function() { return ['0.0.0.0']; },
+    open_browser_files: function() {},
+    open_browser_process: function() {},
+    execute_browser: function() {},
+    execute_command: function() {},
     register_commands_group: function() {},
     create_command: function() {
         var c = {
@@ -73,8 +77,14 @@ var menu = {
     create_menu: function() { return {addItem: function(){}}; },
     add_session_access: function() {},
     add_processbrowser: function() {},
+    add_session_agent: function() {},
+    add_session_browser: function() {},
 };
-var event = { on: function() {} };
+var event = {
+    on: function() {},
+    on_filebrowser_list: function() {},
+    on_processbrowser_list: function() {},
+};
 """
 
 _NETWORK_RE = re.compile(r'address|callback|host|ip', re.I)
@@ -122,6 +132,8 @@ def classify_field(key: str, widget: str, default) -> dict:
     field: dict = {"source": "auto", "value": default, "widget": widget, "hint": None}
     if widget == "file":
         field.update(source="required", value=None)
+    elif widget == "bool" and (default == "" or default is None):
+        field.update(source="auto", value=False)
     elif _NETWORK_RE.search(key) and (default == "" or default is None):
         field.update(source="network", value=None)
     elif default == "" or default is None:

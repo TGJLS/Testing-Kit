@@ -147,9 +147,18 @@ jobs:
       - name: Add Kharon extender
         run: |
           PROFILE_B64=$(base64 -w0 .github/cicd/kharon-malleable-profile.json)
-          ./testing-kit-cli add-extender https://github.com/entropy-z/Kharon \
+          ./testing-kit-cli add-extender \
             --install-script .github/cicd/install-kharon.sh \
-            --override "listener.uploaded_file=${PROFILE_B64}"
+            --override "listener.port_bind=8080" \
+            --override "listener.block_user_agents=" \
+            --override "listener.domain_rotation_strategy=Random" \
+            --override "listener.proxy_url=" \
+            --override "listener.proxy_user=" \
+            --override "listener.proxy_pass=" \
+            --override "listener.ssl_cert=" \
+            --override "listener.ssl_key=" \
+            --override "listener.uploaded_file=${PROFILE_B64}" \
+            https://github.com/entropy-z/Kharon
 
       - name: Seed Kharon tasks
         run: |
@@ -211,8 +220,8 @@ jobs:
       - name: Add Extension-Kit BOFs
         run: |
           ./testing-kit-cli add-extender \
-            https://github.com/Adaptix-Framework/Extension-Kit \
-            --install-script .github/cicd/install-extension-kit.sh
+            --install-script .github/cicd/install-extension-kit.sh \
+            https://github.com/Adaptix-Framework/Extension-Kit
 
       - name: Seed Extension-Kit tasks
         run: |

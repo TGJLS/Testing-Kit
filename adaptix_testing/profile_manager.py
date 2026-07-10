@@ -1,8 +1,9 @@
 import os
+import shutil
 import yaml
 
 PROFILE_PATH             = os.environ.get("ADAPTIX_PROFILE_PATH",      "/app/adaptixc2/profile.yaml")
-EXTENDERS_CONTAINER_PATH = os.environ.get("EXTENDERS_CONTAINER_PATH",  "/app/extenders")
+EXTENDERS_CONTAINER_PATH = os.environ.get("EXTENDERS_CONTAINER_PATH",  "/app/userextenders")
 EXTENDERS_HOST_PATH      = os.environ.get("EXTENDERS_HOST_PATH",       "/app/adaptixc2/extenders")
 
 
@@ -25,7 +26,7 @@ def write_profile(path: str, data: dict) -> None:
     with open(tmp, "w") as fh:
         fh.write("# Managed by Testing-Kit — do not edit manually\n")
         yaml.dump(data, fh, default_flow_style=False)
-    os.replace(tmp, path)
+    shutil.move(tmp, path)
 
 
 def add_extender_entries(
