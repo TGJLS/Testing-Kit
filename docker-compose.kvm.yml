@@ -26,7 +26,7 @@ services:
         ipv4_address: 172.28.0.10
     volumes:
       - ./adaptixc2/dist/profile.yaml:/app/profile.yaml:rw
-      - ./adaptixc2/dist/extenders:/app/extenders:rw
+      - ./adaptixc2/dist/extenders:/app/userextenders:rw
     restart: unless-stopped
 
   testing-kit:
@@ -39,7 +39,7 @@ services:
       TASKS_SEED_PATH: /app/default_tasks.yaml
       ADAPTIX_PROFILE_PATH: /app/adaptixc2/profile.yaml
       EXTENDERS_HOST_PATH: /app/adaptixc2/extenders
-      EXTENDERS_CONTAINER_PATH: /app/extenders
+      EXTENDERS_CONTAINER_PATH: /app/userextenders
     volumes:
       - ./config/config.yaml:/app/config.yaml:ro
       - ./.github/cicd/tasks.yaml:/app/default_tasks.yaml:ro

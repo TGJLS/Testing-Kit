@@ -3,7 +3,7 @@
 # The repo is cloned to /app/extenders/extension-kit.
 set -euo pipefail
 
-EXT_KIT_DIR=/app/extenders/extension-kit
+EXT_KIT_DIR=/app/userextenders/extension-kit
 
 echo "Extension-Kit: checking for pre-built BOF files..."
 

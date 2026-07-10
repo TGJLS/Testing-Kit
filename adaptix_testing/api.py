@@ -277,7 +277,7 @@ def _apply_overrides(schema: Optional[dict], overrides: dict) -> Optional[dict]:
 
 
 def _extender_name_from_url(git_url: str) -> str:
-    return git_url.rstrip("/").rstrip(".git").split("/")[-1].lower()
+    return git_url.rstrip("/").removesuffix(".git").split("/")[-1].lower()
 
 
 # ── Extender routes ───────────────────────────────────────────────────────────

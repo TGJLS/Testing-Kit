@@ -3,7 +3,7 @@
 # The repo is already cloned to /app/extenders/kharon by Testing-Kit.
 set -euo pipefail
 
-KHARON_DIR=/app/extenders/kharon
+KHARON_DIR=/app/userextenders/kharon
 
 if ! command -v go &>/dev/null; then
     apt-get update -qq
