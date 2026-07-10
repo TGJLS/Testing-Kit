@@ -87,3 +87,130 @@ jobs:
       - name: Teardown
         if: always()
         run: ./testing-kit-cli reset
+
+  test-kharon:
+    name: Test Kharon extender
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: false
+
+      - name: Build CLI
+        run: |
+          cd cli && go build \
+            -ldflags "-X main.version=${GITHUB_SHA} -X 'main.repoOwner=TGJLS/Testing-Kit'" \
+            -o ../testing-kit-cli \
+            .
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Build Docker image
+        run: docker build -t ghcr.io/tgjls/testing-kit:2.1.0 .
+
+      - name: Install stack
+        run: ./testing-kit-cli install
+
+      - name: Wait for testing-kit API
+        run: |
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:1234/health > /dev/null 2>&1 && exit 0
+            sleep 2
+          done
+          echo "testing-kit API did not become ready in time"
+          exit 1
+
+      - name: Add Kharon extender
+        run: |
+          PROFILE_B64=$(base64 -w0 .github/cicd/kharon-malleable-profile.json)
+          ./testing-kit-cli add-extender https://github.com/entropy-z/Kharon \
+            --install-script .github/cicd/install-kharon.sh \
+            --override "listener.uploaded_file=${PROFILE_B64}"
+
+      - name: Seed Kharon tasks
+        run: |
+          curl -sf -X PUT http://localhost:1234/v1/tasks/batch \
+            -H "Content-Type: application/json" \
+            -d "$(python3 -c "
+          import json, yaml
+          data = yaml.safe_load(open('.github/cicd/kharon-tasks.yaml'))
+          print(json.dumps(data['tasks']))
+          ")"
+
+      - name: Run tests
+        run: ./testing-kit-cli run-tests
+
+      - name: Tear down
+        if: always()
+        run: ./testing-kit-cli down
+
+  test-extension-kit:
+    name: Test Extension-Kit BOFs
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: false
+
+      - name: Build CLI
+        run: |
+          cd cli && go build \
+            -ldflags "-X main.version=${GITHUB_SHA} -X 'main.repoOwner=TGJLS/Testing-Kit'" \
+            -o ../testing-kit-cli \
+            .
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Build Docker image
+        run: docker build -t ghcr.io/tgjls/testing-kit:2.1.0 .
+
+      - name: Install stack
+        run: ./testing-kit-cli install
+
+      - name: Wait for testing-kit API
+        run: |
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:1234/health > /dev/null 2>&1 && exit 0
+            sleep 2
+          done
+          echo "testing-kit API did not become ready in time"
+          exit 1
+
+      - name: Add Extension-Kit BOFs
+        run: |
+          ./testing-kit-cli add-extender \
+            https://github.com/Adaptix-Framework/Extension-Kit \
+            --install-script .github/cicd/install-extension-kit.sh
+
+      - name: Seed Extension-Kit tasks
+        run: |
+          curl -sf -X PUT http://localhost:1234/v1/tasks/batch \
+            -H "Content-Type: application/json" \
+            -d "$(python3 -c "
+          import json, yaml
+          data = yaml.safe_load(open('.github/cicd/extension-kit-tasks.yaml'))
+          print(json.dumps(data['tasks']))
+          ")"
+
+      - name: Run tests
+        run: ./testing-kit-cli run-tests
+
+      - name: Tear down
+        if: always()
+        run: ./testing-kit-cli down

@@ -1,0 +1,10 @@
+tasks:
+  - cmdline: "shell whoami"
+    expected: "ci_runner"
+
+  - cmdline: "shell echo extension_kit_ok"
+    expected: "extension_kit_ok"
+
+  - cmdline: "xyzzy frobnicate"
+    expected: "will never succeed"
+    allowed_to_fail: true
