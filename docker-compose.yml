@@ -21,6 +21,9 @@ services:
     networks:
       ci-net:
         ipv4_address: 172.28.0.10
+    volumes:
+      - ./adaptixc2/dist/profile.yaml:/app/profile.yaml:rw
+      - ./adaptixc2/dist/extenders:/app/extenders:rw
     restart: unless-stopped
 
   testing-kit:
@@ -31,11 +34,16 @@ services:
     environment:
       TESTING_KIT_DB: /data/testing_kit.db
       TASKS_SEED_PATH: /app/default_tasks.yaml
+      ADAPTIX_PROFILE_PATH: /app/adaptixc2/profile.yaml
+      EXTENDERS_HOST_PATH: /app/adaptixc2/extenders
+      EXTENDERS_CONTAINER_PATH: /app/extenders
     volumes:
       - ./config/config.yaml:/app/config.yaml:ro
-      - ./config/tasks.yaml:/app/default_tasks.yaml:ro
+      - ./.github/cicd/tasks.yaml:/app/default_tasks.yaml:ro
       - ./ssh/id_test:/run/secrets/ssh_key:ro
       - testing-kit-db:/data
+      - ./adaptixc2/dist/profile.yaml:/app/adaptixc2/profile.yaml:rw
+      - ./adaptixc2/dist/extenders:/app/adaptixc2/extenders:rw
     restart: unless-stopped
 
 networks:

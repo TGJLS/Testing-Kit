@@ -3,6 +3,7 @@ __pycache__/
 *.py[oc]
 build/
 dist/
+!adaptixc2/dist/
 wheels/
 *.egg-info
 
@@ -26,3 +27,5 @@ docker-compose.override.yml
 ssh/
 testing-kit-cli
 testing-kit-cli.tar.gz
+!.github/cicd/tasks.yaml
+adaptixc2/dist/extenders/
