@@ -186,6 +186,10 @@ jobs:
       - name: Run tests
         run: ./testing-kit-cli run-tests
 
+      - name: Print adaptixc2 logs
+        if: always()
+        run: docker compose logs adaptixc2 | tail -100 || true
+
       - name: Tear down
         if: always()
         run: ./testing-kit-cli down
