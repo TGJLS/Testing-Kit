@@ -5,6 +5,7 @@ import io
 import json
 import os
 import re
+import secrets
 import sqlite3
 import sys
 import time
@@ -12,6 +13,7 @@ import urllib3
 import yaml
 import requests
 import paramiko
+from urllib.parse import urlparse
 
 from adaptix_testing import db as _db
 
@@ -117,6 +119,50 @@ def _resolve_agent_profile(setup_cfg, project, listener_name):
     if profile_name:
         return _load_profile("AgentProfiles", project, profile_name)
     return _auto_agent_profile(project, listener_name)
+
+
+def _resolve_schema_value(key: str, field: dict, cfg: dict, port_bind: int) -> object:
+    """Resolve a single schema field to its runtime value."""
+    source = field["source"]
+    if source == "auto":
+        return field["value"]
+    if source == "generate":
+        return secrets.token_hex(16)
+    if source == "network":
+        host = urlparse(cfg["server"]["url"]).hostname
+        return f"{host}:{port_bind}"
+    if source == "required":
+        if field.get("value") is None:
+            raise RuntimeError(f"Required field '{key}' has no value set — patch via PATCH /v1/extenders/{{id}}")
+        return field["value"]
+    return field.get("value")
+
+
+def _resolve_listener_from_extender(extender: dict, cfg: dict) -> dict:
+    """Build a listener profile dict from an active extender DB row."""
+    schema = json.loads(extender["listener_schema"])
+    port_bind_field = schema.get("port_bind", {})
+    port_bind = port_bind_field.get("value", 80)
+    if isinstance(port_bind, (int, float)):
+        port_bind = int(port_bind)
+
+    config = {}
+    for key, field in schema.items():
+        config[key] = _resolve_schema_value(key, field, cfg, port_bind)
+
+    listener_name = extender["listener_name"] or "extender"
+    instance_name = f"{listener_name.lower()}_ci"
+    return {"name": instance_name, "type": listener_name, "config": json.dumps(config)}
+
+
+def _resolve_agent_from_extender(extender: dict, cfg: dict, listener_instance_name: str) -> dict:
+    """Build an agent profile dict from an active extender DB row."""
+    schema = json.loads(extender["agent_schema"])
+    config = {}
+    for key, field in schema.items():
+        config[key] = _resolve_schema_value(key, field, cfg, 0)
+    agent_name = extender["agent_name"] or "extender"
+    return {"agent": agent_name, "listener": listener_instance_name, "config": json.dumps(config)}
 
 
 # ── Listener / agent setup ────────────────────────────────────────────────────
@@ -607,10 +653,23 @@ def run_tests(config_path: str, conn) -> dict:
     setup_cfg = cfg.get("setup")
     if setup_cfg:
         project = setup_cfg.get("project", "")
-        listener_profile = _resolve_listener_profile(setup_cfg, project)
+
+        active_listener_ext = _db.get_active_listener_extender(conn)
+        active_agent_ext    = _db.get_active_agent_extender(conn)
+
+        if active_listener_ext:
+            listener_profile = _resolve_listener_from_extender(active_listener_ext, cfg)
+        else:
+            listener_profile = _resolve_listener_profile(setup_cfg, project)
+
         _create_listener_from_profile(base_url, headers, listener_profile)
         output_path_agent = setup_cfg.get("agent_output", "/tmp/ci_agent.exe")
-        agent_profile = _resolve_agent_profile(setup_cfg, project, listener_profile["name"])
+
+        if active_agent_ext:
+            agent_profile = _resolve_agent_from_extender(active_agent_ext, cfg, listener_profile["name"])
+        else:
+            agent_profile = _resolve_agent_profile(setup_cfg, project, listener_profile["name"])
+
         _generate_agent_from_profile(base_url, headers, agent_profile, output_path_agent)
 
     ssh_client = None
@@ -744,11 +803,23 @@ def main():
     if setup_cfg:
         project = setup_cfg.get("project", "")
         try:
-            listener_profile = _resolve_listener_profile(setup_cfg, project)
+            active_listener_ext = _db.get_active_listener_extender(conn)
+            active_agent_ext    = _db.get_active_agent_extender(conn)
+
+            if active_listener_ext:
+                listener_profile = _resolve_listener_from_extender(active_listener_ext, cfg)
+            else:
+                listener_profile = _resolve_listener_profile(setup_cfg, project)
+
             _create_listener_from_profile(base_url, headers, listener_profile)
 
             output_path_agent = setup_cfg.get("agent_output", "./generated_agent")
-            agent_profile = _resolve_agent_profile(setup_cfg, project, listener_profile["name"])
+
+            if active_agent_ext:
+                agent_profile = _resolve_agent_from_extender(active_agent_ext, cfg, listener_profile["name"])
+            else:
+                agent_profile = _resolve_agent_profile(setup_cfg, project, listener_profile["name"])
+
             _generate_agent_from_profile(base_url, headers, agent_profile, output_path_agent)
         except Exception as e:
             die(f"Setup failed: {e}")
