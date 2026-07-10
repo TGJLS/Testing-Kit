@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"net/http"
@@ -9,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 var (
@@ -34,6 +37,8 @@ func main() {
 		cmdCompose("down", "-v")
 	case "run-tests":
 		cmdRunTests()
+	case "add-extender":
+		cmdAddExtender(os.Args[2:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", os.Args[1])
 		usage()
@@ -43,7 +48,7 @@ func main() {
 
 func usage() {
 	fmt.Fprintln(os.Stderr, "Usage: testing-kit-cli <command>")
-	fmt.Fprintln(os.Stderr, "Commands: install, up, down, reset, run-tests")
+	fmt.Fprintln(os.Stderr, "Commands: install, up, down, reset, run-tests, add-extender")
 }
 
 func die(msg string) {
@@ -178,7 +183,7 @@ func downloadFiles() {
 	}
 	fmt.Println("✓ docker-compose.yml downloaded")
 
-	for _, f := range []string{"config/config.yaml", "config/tasks.yaml"} {
+	for _, f := range []string{"config/config.yaml", ".github/cicd/tasks.yaml"} {
 		if _, err := os.Stat(f); err == nil {
 			fmt.Printf("⚠  %s already exists — skipping\n", f)
 			continue
@@ -274,4 +279,164 @@ func generateSSHKey() {
 		die(fmt.Sprintf("Failed to write windows/oem/install.bat: %v", err))
 	}
 	fmt.Println("✓ windows/oem/install.bat rendered")
+}
+
+type multiFlag []string
+
+func (m *multiFlag) String() string        { return strings.Join(*m, ",") }
+func (m *multiFlag) Set(v string) error    { *m = append(*m, v); return nil }
+
+func cmdAddExtender(args []string) {
+	fs := flag.NewFlagSet("add-extender", flag.ExitOnError)
+	installScript := fs.String("install-script", "", "local script to exec as root in adaptixc2")
+	overridesFile := fs.String("overrides-file", "", "JSON file of {listener:{},agent:{}} overrides")
+	noActivate    := fs.Bool("no-activate", false, "skip activation")
+	noRestart     := fs.Bool("no-restart", false, "skip docker restart after activation")
+	var overrideFlags multiFlag
+	fs.Var(&overrideFlags, "override", "field override: role.key=value (repeatable)")
+	fs.Parse(args)
+
+	if fs.NArg() < 1 {
+		fmt.Fprintln(os.Stderr, "Usage: testing-kit-cli add-extender <git-url> [flags]")
+		os.Exit(1)
+	}
+	gitURL := fs.Arg(0)
+
+	overrides := map[string]map[string]string{}
+	if *overridesFile != "" {
+		data, err := os.ReadFile(*overridesFile)
+		if err != nil {
+			die(fmt.Sprintf("Cannot read overrides file: %v", err))
+		}
+		if err := json.Unmarshal(data, &overrides); err != nil {
+			die(fmt.Sprintf("Invalid JSON in overrides file: %v", err))
+		}
+	}
+	for _, ov := range overrideFlags {
+		dotIdx := strings.Index(ov, ".")
+		eqIdx  := strings.Index(ov, "=")
+		if dotIdx < 0 || eqIdx <= dotIdx {
+			die(fmt.Sprintf("Invalid --override format %q; expected role.key=value", ov))
+		}
+		role := ov[:dotIdx]
+		key  := ov[dotIdx+1 : eqIdx]
+		val  := ov[eqIdx+1:]
+		if overrides[role] == nil {
+			overrides[role] = map[string]string{}
+		}
+		overrides[role][key] = val
+	}
+
+	fmt.Printf("Registering extender from %s ...\n", gitURL)
+	reqBody, _ := json.Marshal(map[string]any{"git_url": gitURL, "overrides": overrides})
+	resp, err := http.Post(apiURL+"/v1/extenders", "application/json", bytes.NewReader(reqBody))
+	if err != nil {
+		die(fmt.Sprintf("API error: %v", err))
+	}
+	defer resp.Body.Close()
+	respBytes, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		die(fmt.Sprintf("Registration failed (%d): %s", resp.StatusCode, strings.TrimSpace(string(respBytes))))
+	}
+
+	var reg struct {
+		ID     string `json:"id"`
+		Name   string `json:"name"`
+		Status string `json:"status"`
+		RequiredFields map[string][]struct {
+			Key    string `json:"key"`
+			Widget string `json:"widget"`
+			Hint   string `json:"hint"`
+		} `json:"required_fields"`
+	}
+	if err := json.Unmarshal(respBytes, &reg); err != nil {
+		die(fmt.Sprintf("Cannot parse registration response: %v", err))
+	}
+
+	if reg.Status == "needs_input" {
+		fmt.Printf("Extender %q registered (id: %s) but missing required fields:\n\n", reg.Name, reg.ID)
+		for role, fields := range reg.RequiredFields {
+			if len(fields) == 0 {
+				continue
+			}
+			fmt.Printf("  %s:\n", role)
+			for _, f := range fields {
+				hint := ""
+				if f.Hint != "" {
+					hint = "  " + f.Hint
+				}
+				fmt.Printf("    %-30s [%s]%s\n", f.Key, f.Widget, hint)
+			}
+		}
+		fmt.Printf("\nRe-run with --override or --overrides-file to supply missing values.\n")
+		os.Exit(1)
+	}
+	fmt.Printf("✓ Extender %q registered (id: %s)\n", reg.Name, reg.ID)
+
+	if *installScript != "" {
+		absScript, err := filepath.Abs(*installScript)
+		if err != nil {
+			die(fmt.Sprintf("Cannot resolve install script path: %v", err))
+		}
+		fmt.Printf("Copying install script to adaptixc2 ...\n")
+		cpCmd := exec.Command("docker", "cp", absScript, "adaptixc2:/tmp/tk_install.sh")
+		cpCmd.Stdout = os.Stdout
+		cpCmd.Stderr = os.Stderr
+		if err := cpCmd.Run(); err != nil {
+			die(fmt.Sprintf("docker cp failed: %v", err))
+		}
+		fmt.Printf("Running install script in adaptixc2 ...\n")
+		execCmd := exec.Command("docker", "exec", "-u", "root", "adaptixc2",
+			"bash", "/tmp/tk_install.sh")
+		execCmd.Stdout = os.Stdout
+		execCmd.Stderr = os.Stderr
+		if err := execCmd.Run(); err != nil {
+			die(fmt.Sprintf("Install script failed: %v", err))
+		}
+		fmt.Println("✓ Install script completed")
+	}
+
+	if *noActivate {
+		return
+	}
+
+	fmt.Printf("Activating extender %s ...\n", reg.ID)
+	actResp, err := http.Post(apiURL+"/v1/extenders/"+reg.ID+"/activate",
+		"application/json", nil)
+	if err != nil {
+		die(fmt.Sprintf("Activation request failed: %v", err))
+	}
+	defer actResp.Body.Close()
+	actBody, _ := io.ReadAll(actResp.Body)
+	if actResp.StatusCode == http.StatusConflict {
+		die(fmt.Sprintf("Activation conflict: %s", strings.TrimSpace(string(actBody))))
+	}
+	if actResp.StatusCode != http.StatusOK {
+		die(fmt.Sprintf("Activation failed (%d): %s", actResp.StatusCode, strings.TrimSpace(string(actBody))))
+	}
+	fmt.Println("✓ Extender activated")
+
+	if *noRestart {
+		return
+	}
+
+	fmt.Println("Restarting adaptixc2 ...")
+	restartCmd := exec.Command("docker", "restart", "adaptixc2")
+	restartCmd.Stdout = os.Stdout
+	restartCmd.Stderr = os.Stderr
+	if err := restartCmd.Run(); err != nil {
+		die(fmt.Sprintf("docker restart failed: %v", err))
+	}
+
+	fmt.Print("Waiting for adaptixc2")
+	for i := 0; i < 30; i++ {
+		time.Sleep(2 * time.Second)
+		r, err := http.Get(apiURL + "/health")
+		if err == nil && r.StatusCode == http.StatusOK {
+			fmt.Println("\n✓ adaptixc2 ready")
+			return
+		}
+		fmt.Print(".")
+	}
+	die("adaptixc2 did not become healthy within 60s after restart")
 }
