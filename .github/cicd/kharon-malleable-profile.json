@@ -1,6 +1,35 @@
 {
-  "UserAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-  "Headers": [],
-  "URIs": ["/api/v1/status", "/api/v1/check"],
-  "BodyEncoding": "base64"
+    "callbacks": [
+        {
+            "hosts": ["adaptixc2:8080"],
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "server_error": {
+                "http_status": 404,
+                "response": "Not Found",
+                "headers": {"Content-Type": "text/plain"}
+            },
+            "get": {
+                "server_headers": {"Content-Type": "application/octet-stream"},
+                "client_headers": {"Accept": "*/*"},
+                "empty_response": "",
+                "uri": {
+                    "/api/v1/status": {
+                        "server_output": {"mask": false, "format": "base64"},
+                        "client_output": {"mask": false, "format": "base64"}
+                    }
+                }
+            },
+            "post": {
+                "server_headers": {"Content-Type": "application/octet-stream"},
+                "client_headers": {"Content-Type": "application/octet-stream"},
+                "empty_response": "",
+                "uri": {
+                    "/api/v1/check": {
+                        "server_output": {"mask": false, "format": "base64"},
+                        "client_output": {"mask": false, "format": "base64"}
+                    }
+                }
+            }
+        }
+    ]
 }

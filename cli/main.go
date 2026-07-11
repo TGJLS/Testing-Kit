@@ -432,7 +432,7 @@ func cmdAddExtender(args []string) {
 	for i := 0; i < 150; i++ {
 		time.Sleep(2 * time.Second)
 		out, err := exec.Command("docker", "exec", "adaptixc2",
-			"sh", "-c", "ss -tln 2>/dev/null | grep -q ':4321'").Output()
+			"bash", "-c", "(echo > /dev/tcp/localhost/4321) 2>/dev/null").Output()
 		_ = out
 		if err == nil {
 			fmt.Println("\n✓ adaptixc2 ready")
