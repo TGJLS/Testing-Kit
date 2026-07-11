@@ -1,15 +1,15 @@
 tasks:
-  - cmdline: "shell whoami"
+  - cmdline: "token getuid"
     expected: "ci_runner"
 
-  - cmdline: "shell hostname"
+  - cmdline: "process create --command \"hostname\" --pipe"
     expected_regex: "(?i)win|desktop|server"
 
-  - cmdline: "shell dir C:\\"
+  - cmdline: "fs ls C:\\"
     expected: "Windows"
     not_expected: "File Not Found"
 
-  - cmdline: "shell echo kharon_test_ok"
+  - cmdline: "process create --command \"cmd.exe /c echo kharon_test_ok\" --pipe"
     expected: "kharon_test_ok"
 
   - cmdline: "xyzzy frobnicate"

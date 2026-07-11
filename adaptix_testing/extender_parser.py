@@ -26,15 +26,50 @@ var form = {
     create_container: function() {
         return {
             put: function(k, w, d) {
-                _fields.push({key: k, widget: w && w.t ? w.t : 'string', def: d !== undefined ? d : null});
+                var val = d !== undefined ? d : (w && w._val !== undefined ? w._val : null);
+                _fields.push({key: k, widget: w && w.t ? w.t : 'string', def: val});
             }
         };
     },
-    create_combo: function() { return _widget('combo'); },
-    create_spin: function() { return _widget('spin'); },
+    create_combo: function() {
+        var w = {t: 'combo', _items: [], _idx: 0, _val: null};
+        var noop = function() { return w; };
+        w.setEnabled = noop; w.clear = function() { w._items = []; w._idx = 0; w._val = null; return w; };
+        w.connect = noop; w.setLayout = noop; w.setPanel = noop;
+        w.setRange = noop; w.setChecked = noop; w.setPlaceholder = noop; w.setReadOnly = noop;
+        w.setSelection = noop; w.setColumnStretch = noop; w.setSpacing = noop;
+        w.addItem = function(v) { w._items.push(v); if (w._items.length === 1) { w._val = v; } return w; };
+        w.addItems = function(arr) { arr.forEach(function(v) { w.addItem(v); }); return w; };
+        w.setCurrentIndex = function(i) { if (i >= 0 && i < w._items.length) { w._val = w._items[i]; } return w; };
+        w.getSelection = function() { return w._val || ''; };
+        w.addWidget = noop; w.addRow = noop; w.addColumn = noop;
+        return w;
+    },
+    create_spin: function(def) {
+        var w = {t: 'spin', _val: def !== undefined ? def : null};
+        var noop = function() { return w; };
+        w.setEnabled = noop; w.clear = noop; w.connect = noop; w.addItem = noop; w.addItems = noop;
+        w.addWidget = noop; w.addRow = noop; w.addColumn = noop; w.setLayout = noop; w.setPanel = noop;
+        w.setRange = noop; w.setChecked = noop; w.setPlaceholder = noop; w.setReadOnly = noop;
+        w.setCurrentIndex = noop; w.setSelection = noop; w.setColumnStretch = noop; w.setSpacing = noop;
+        w.setValue = function(v) { w._val = v; return w; };
+        w.getSelection = function() { return w._val !== null ? String(w._val) : ''; };
+        return w;
+    },
     create_checkbox: function() { return _widget('bool'); },
     create_check: function() { return _widget('bool'); },
-    create_textline: function() { return _widget('string'); },
+    create_textline: function(def) {
+        var w = {t: 'string', _val: def !== undefined ? def : null};
+        var noop = function() { return w; };
+        w.setEnabled = noop; w.clear = noop; w.connect = noop; w.addItem = noop; w.addItems = noop;
+        w.addWidget = noop; w.addRow = noop; w.addColumn = noop; w.setLayout = noop; w.setPanel = noop;
+        w.setRange = noop; w.setChecked = noop; w.setReadOnly = noop;
+        w.setCurrentIndex = noop; w.setSelection = noop; w.setColumnStretch = noop; w.setSpacing = noop;
+        w.setValue = function(v) { w._val = v; return w; };
+        w.setPlaceholder = function() { return w; };
+        w.getSelection = function() { return w._val !== null ? w._val : ''; };
+        return w;
+    },
     create_textmulti: function() { return _widget('string'); },
     create_file: function() { return _widget('file'); },
     create_selector_file: function() { return _widget('file'); },
@@ -45,6 +80,9 @@ var form = {
     create_gridlayout: function() { return _widget(''); },
     create_hlayout: function() { return _widget(''); },
     create_panel: function() { return _widget(''); },
+    create_scrollarea: function() { return _widget(''); },
+    create_tabwidget: function() { return _widget(''); },
+    create_stackwidget: function() { return _widget(''); },
     connect: function() {},
 };
 function getNetworkInterfaces() { return ['0.0.0.0']; }
@@ -97,6 +135,9 @@ _SPECIAL: dict[str, dict] = {
     "encrypt_key":        {"source": "generate", "value": None},
     "uploaded_file":      {"source": "required", "value": None,
                            "hint": "base64-encoded malleable profile JSON"},
+    # Disable sleep masking in CI — obfuscated sleep modes prevent agents from
+    # beaconing in a plain QEMU VM (no kernel driver, no obfuscation support).
+    "mask_sleep":         {"source": "auto",     "value": "none"},
 }
 
 
@@ -112,19 +153,45 @@ def _es5_compat(js: str) -> str:
     return js
 
 
+def _extract_function(js: str, fn_name: str) -> str:
+    """Extract the body of a named function from JS source, handling nested braces."""
+    pattern = re.compile(r'\bfunction\s+' + re.escape(fn_name) + r'\s*\([^)]*\)\s*\{')
+    m = pattern.search(js)
+    if not m:
+        return ""
+    start = m.end() - 1  # position of opening '{'
+    depth = 0
+    for i in range(start, len(js)):
+        if js[i] == '{':
+            depth += 1
+        elif js[i] == '}':
+            depth -= 1
+            if depth == 0:
+                return js[m.start():i + 1]
+    return ""
+
+
 def parse_axs_fields(axs_text: str, fn_name: str) -> list[dict]:
     """Evaluate axs_text with mock globals; call fn_name; return raw [{key,widget,def}]."""
     arg = "'create'" if fn_name == "ListenerUI" else "''"
-    try:
-        interp = dukpy.JSInterpreter()
-        interp.evaljs(_MOCK_JS)
-        interp.evaljs(_es5_compat(axs_text))
-        interp.evaljs("_fields = [];")
-        interp.evaljs(f"if (typeof {fn_name} !== 'undefined') {{ {fn_name}({arg}); }}")
-        raw = interp.evaljs("JSON.stringify(_fields)")
-        return json.loads(raw) if raw and raw != "null" else []
-    except Exception:
-        return []
+    # First try evaluating the whole file (works when no syntax errors).
+    # Fall back to extracting and evaluating just the target function body.
+    for js_to_eval in [_es5_compat(axs_text), _extract_function(axs_text, fn_name)]:
+        if not js_to_eval:
+            continue
+        try:
+            interp = dukpy.JSInterpreter()
+            interp.evaljs(_MOCK_JS)
+            interp.evaljs(_es5_compat(js_to_eval))
+            interp.evaljs("_fields = [];")
+            interp.evaljs(f"if (typeof {fn_name} !== 'undefined') {{ {fn_name}({arg}); }}")
+            raw = interp.evaljs("JSON.stringify(_fields)")
+            result = json.loads(raw) if raw and raw != "null" else []
+            if result:
+                return result
+        except Exception:
+            continue
+    return []
 
 
 def classify_field(key: str, widget: str, default) -> dict:

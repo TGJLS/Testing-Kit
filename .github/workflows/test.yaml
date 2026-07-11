@@ -158,6 +158,7 @@ jobs:
             --override "listener.ssl_cert=" \
             --override "listener.ssl_key=" \
             --override "listener.uploaded_file=${PROFILE_B64}" \
+            --override "agent.mask_sleep=none" \
             https://github.com/entropy-z/Kharon
 
       - name: Seed Kharon tasks

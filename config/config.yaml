@@ -42,7 +42,7 @@ ssh:
   username: ci_runner
   key_path: /run/secrets/ssh_key
   source_path: /tmp/ci_agent.exe
-  agent_path: 'C:\ci\agent.exe'
+  agent_path: '/ci/agent.exe'
   terminate: true
   connect_retries: 90
   connect_retry_interval: 20
