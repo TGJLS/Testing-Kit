@@ -83,8 +83,10 @@ if [ ! -d "$ADAPTIX_SRC" ]; then
 fi
 
 COMBINED_WORK=/tmp/combined.work
+GO_WORK_VER="${BINARY_GO#go}"
+[ -z "$GO_WORK_VER" ] && GO_WORK_VER="1.25"
 cat > "$COMBINED_WORK" <<EOF
-go 1.25
+go ${GO_WORK_VER}
 
 use (
     ${ADAPTIX_SRC}/AdaptixServer
