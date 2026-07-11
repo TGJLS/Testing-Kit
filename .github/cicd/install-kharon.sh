@@ -37,11 +37,42 @@ echo "GOEXPERIMENT: ${BINARY_GOEXP}"
 AXC2_VERSION=v1.2.0
 echo "Pinning axc2 to ${AXC2_VERSION}"
 
+# --- Build combined go.work FIRST ---
+# Both listener and agent plugins must be built with a single go.work so that
+# all shared packages (especially axc2) resolve to the exact same versions as
+# the running adaptixserver binary. Building without this causes:
+#   plugin.Open: "plugin was built with a different version of package axc2"
+ADAPTIX_SRC=/tmp/adaptixc2-src
+if [ ! -d "$ADAPTIX_SRC" ]; then
+    echo "Cloning AdaptixC2 source for go.work..."
+    git clone --depth=1 https://github.com/TGJLS/AdaptixC2 "$ADAPTIX_SRC"
+fi
+
+COMBINED_WORK=/tmp/combined.work
+GO_WORK_VER="${BINARY_GO#go}"
+[ -z "$GO_WORK_VER" ] && GO_WORK_VER="1.25"
+cat > "$COMBINED_WORK" <<EOF
+go ${GO_WORK_VER}
+
+use (
+    ${ADAPTIX_SRC}/AdaptixServer
+    ${ADAPTIX_SRC}/AdaptixServer/extenders/beacon_agent
+    ${ADAPTIX_SRC}/AdaptixServer/extenders/beacon_listener_dns
+    ${ADAPTIX_SRC}/AdaptixServer/extenders/beacon_listener_http
+    ${ADAPTIX_SRC}/AdaptixServer/extenders/beacon_listener_smb
+    ${ADAPTIX_SRC}/AdaptixServer/extenders/beacon_listener_tcp
+    ${ADAPTIX_SRC}/AdaptixServer/extenders/gopher_agent
+    ${ADAPTIX_SRC}/AdaptixServer/extenders/gopher_listener_tcp
+    ${KHARON_DIR}/listener_kharon_http
+    ${KHARON_DIR}/agent_kharon
+)
+EOF
+
 # --- Build Kharon listener ---
 echo "Building Kharon listener..."
 cd "${KHARON_DIR}/listener_kharon_http"
 go get "github.com/Adaptix-Framework/axc2@${AXC2_VERSION}"
-GOEXPERIMENT="${BINARY_GOEXP}" make all
+GOWORK="${COMBINED_WORK}" GOEXPERIMENT="${BINARY_GOEXP}" make all
 
 # --- Patch pl_agent.go: add mask_sleep="none" -> KH_SLEEP_MASK=0 ---
 # Without this, the default sleep mask mode (3) uses obfuscation techniques
@@ -72,35 +103,6 @@ elif 'case \"none\":' in content:
 else:
     print('WARNING: patch target not found in pl_agent.go', file=sys.stderr)
 " "$AGENT_GO"
-
-# --- Build combined go.work to resolve shared package versions ---
-# Without this, the plugin may embed different package versions than the server,
-# causing plugin.Open() to fail with "different version of package" errors.
-ADAPTIX_SRC=/tmp/adaptixc2-src
-if [ ! -d "$ADAPTIX_SRC" ]; then
-    echo "Cloning AdaptixC2 source for go.work..."
-    git clone --depth=1 https://github.com/TGJLS/AdaptixC2 "$ADAPTIX_SRC"
-fi
-
-COMBINED_WORK=/tmp/combined.work
-GO_WORK_VER="${BINARY_GO#go}"
-[ -z "$GO_WORK_VER" ] && GO_WORK_VER="1.25"
-cat > "$COMBINED_WORK" <<EOF
-go ${GO_WORK_VER}
-
-use (
-    ${ADAPTIX_SRC}/AdaptixServer
-    ${ADAPTIX_SRC}/AdaptixServer/extenders/beacon_agent
-    ${ADAPTIX_SRC}/AdaptixServer/extenders/beacon_listener_dns
-    ${ADAPTIX_SRC}/AdaptixServer/extenders/beacon_listener_http
-    ${ADAPTIX_SRC}/AdaptixServer/extenders/beacon_listener_smb
-    ${ADAPTIX_SRC}/AdaptixServer/extenders/beacon_listener_tcp
-    ${ADAPTIX_SRC}/AdaptixServer/extenders/gopher_agent
-    ${ADAPTIX_SRC}/AdaptixServer/extenders/gopher_listener_tcp
-    ${KHARON_DIR}/listener_kharon_http
-    ${KHARON_DIR}/agent_kharon
-)
-EOF
 
 # --- Build Kharon agent plugin ---
 echo "Building Kharon agent plugin..."
