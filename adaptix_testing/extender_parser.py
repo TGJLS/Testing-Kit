@@ -138,6 +138,16 @@ _SPECIAL: dict[str, dict] = {
     # Disable sleep masking in CI — obfuscated sleep modes prevent agents from
     # beaconing in a plain QEMU VM (no kernel driver, no obfuscation support).
     "mask_sleep":         {"source": "auto",     "value": "none"},
+    # Evasive/optional fields: empty string disables the feature in Kharon.
+    # guardrails_user/domain are optional text fields with "" as their intended
+    # empty default; classify_field treats "" as "required" for string widgets.
+    # killdate_date/workingtime_* are date/time widgets with no real default —
+    # empty string means "feature disabled" in all cases.
+    "guardrails_user":    {"source": "auto",     "value": ""},
+    "guardrails_domain":  {"source": "auto",     "value": ""},
+    "killdate_date":      {"source": "auto",     "value": ""},
+    "workingtime_start":  {"source": "auto",     "value": ""},
+    "workingtime_end":    {"source": "auto",     "value": ""},
 }
 
 
