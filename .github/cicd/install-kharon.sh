@@ -5,9 +5,12 @@ set -euo pipefail
 
 KHARON_DIR=/app/userextenders/kharon
 
-if ! command -v make &>/dev/null; then
+NEED_PKGS=()
+command -v make    &>/dev/null || NEED_PKGS+=(make)
+command -v python3 &>/dev/null || NEED_PKGS+=(python3)
+if [ ${#NEED_PKGS[@]} -gt 0 ]; then
     apt-get update -qq
-    apt-get install -y -qq make
+    apt-get install -y -qq "${NEED_PKGS[@]}"
 fi
 
 # --- Go toolchain ---
