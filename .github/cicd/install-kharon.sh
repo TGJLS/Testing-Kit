@@ -31,10 +31,22 @@ fi
 echo "Using Go: $(go version)"
 echo "GOEXPERIMENT: ${BINARY_GOEXP}"
 
-# --- axc2 version ---
-# Kharon's go.mod may pin an older axc2 version; Go plugin ABI requires
-# the exact same axc2 as the running server.
-AXC2_VERSION=v1.2.0
+# --- Inspect adaptixserver binary ---
+# Print the full dependency list so CI logs tell us exactly what axc2 version
+# (and any replace directives) the running server was compiled with.
+echo "=== adaptixserver build info ==="
+go version -m /app/adaptixserver 2>/dev/null || echo "(go version -m failed)"
+
+# Extract the exact axc2 version embedded in the binary.  If the server used a
+# local/replace source the output is "(devel)" — fall back to v1.2.0 in that case.
+BINARY_AXC2=$(go version -m /app/adaptixserver 2>/dev/null | \
+    awk '/github\.com\/Adaptix-Framework\/axc2/{print $3}') || BINARY_AXC2=""
+echo "axc2 in binary: ${BINARY_AXC2:-unknown}"
+if [[ "${BINARY_AXC2}" =~ ^v[0-9] ]]; then
+    AXC2_VERSION="${BINARY_AXC2}"
+else
+    AXC2_VERSION=v1.2.0
+fi
 echo "Pinning axc2 to ${AXC2_VERSION}"
 
 # --- Build combined go.work FIRST ---
@@ -42,34 +54,43 @@ echo "Pinning axc2 to ${AXC2_VERSION}"
 # all shared packages (especially axc2) resolve to the exact same versions as
 # the running adaptixserver binary. Building without this causes:
 #   plugin.Open: "plugin was built with a different version of package axc2"
+# We discover ALL go.mod files in the TGJLS/AdaptixC2 clone dynamically so
+# that any local axc2 module (pointed to by a replace directive) is included.
 ADAPTIX_SRC=/tmp/adaptixc2-src
 if [ ! -d "$ADAPTIX_SRC" ]; then
     echo "Cloning AdaptixC2 source for go.work..."
     git clone --depth=1 https://github.com/TGJLS/AdaptixC2 "$ADAPTIX_SRC"
 fi
 
+echo "=== Modules found in AdaptixC2 clone (diagnostic only) ==="
+while IFS= read -r gomod_path; do
+    dir=$(dirname "$gomod_path")
+    echo "  ${dir}: $(head -1 "$gomod_path")"
+    if grep -q 'Adaptix-Framework/axc2' "$gomod_path" 2>/dev/null; then
+        grep 'Adaptix-Framework/axc2' "$gomod_path" | sed 's/^/    axc2 in go.mod: /'
+    fi
+done < <(find "$ADAPTIX_SRC" -name "go.mod" -not -path "*/vendor/*" | sort)
+
+# Build a go.work with ONLY the Kharon modules so that MVS picks exactly the
+# axc2 version we pinned via "go get", without interference from AdaptixC2's
+# potentially-newer go.mod (the docker image may lag behind the repo HEAD).
 COMBINED_WORK=/tmp/combined.work
 GO_WORK_VER="${BINARY_GO#go}"
 [ -z "$GO_WORK_VER" ] && GO_WORK_VER="1.25"
-cat > "$COMBINED_WORK" <<EOF
-go ${GO_WORK_VER}
+{
+    printf 'go %s\n\nuse (\n' "${GO_WORK_VER}"
+    printf '    %s\n' "${KHARON_DIR}/listener_kharon_http"
+    printf '    %s\n' "${KHARON_DIR}/agent_kharon"
+    printf ')\n'
+} > "$COMBINED_WORK"
 
-use (
-    ${ADAPTIX_SRC}/AdaptixServer
-    ${ADAPTIX_SRC}/AdaptixServer/extenders/beacon_agent
-    ${ADAPTIX_SRC}/AdaptixServer/extenders/beacon_listener_dns
-    ${ADAPTIX_SRC}/AdaptixServer/extenders/beacon_listener_http
-    ${ADAPTIX_SRC}/AdaptixServer/extenders/beacon_listener_smb
-    ${ADAPTIX_SRC}/AdaptixServer/extenders/beacon_listener_tcp
-    ${ADAPTIX_SRC}/AdaptixServer/extenders/gopher_agent
-    ${ADAPTIX_SRC}/AdaptixServer/extenders/gopher_listener_tcp
-    ${KHARON_DIR}/listener_kharon_http
-    ${KHARON_DIR}/agent_kharon
-)
-EOF
+echo "=== Generated go.work ==="
+cat "$COMBINED_WORK"
 
 # --- Build Kharon listener ---
 echo "Building Kharon listener..."
+echo "=== listener_kharon_http/Makefile ==="
+cat "${KHARON_DIR}/listener_kharon_http/Makefile" 2>/dev/null || echo "(no Makefile)"
 cd "${KHARON_DIR}/listener_kharon_http"
 go get "github.com/Adaptix-Framework/axc2@${AXC2_VERSION}"
 GOWORK="${COMBINED_WORK}" GOEXPERIMENT="${BINARY_GOEXP}" make all
@@ -113,6 +134,13 @@ cd "${KHARON_DIR}/agent_kharon/src_server"
 GOWORK="${COMBINED_WORK}" GOEXPERIMENT="${BINARY_GOEXP}" \
     go build -buildmode=plugin -o "../dist/agent_kharon.so" .
 echo "Built: $(ls -sh ../dist/agent_kharon.so)"
+
+echo "=== axc2 version in built plugins ==="
+go version -m "${KHARON_DIR}/listener_kharon_http/dist/listener_kharon_http.so" 2>/dev/null | \
+    awk '/axc2/{print "  listener: "$0}' || echo "  listener: (read failed)"
+go version -m "${KHARON_DIR}/agent_kharon/dist/agent_kharon.so" 2>/dev/null | \
+    awk '/axc2/{print "  agent:    "$0}' || echo "  agent: (read failed)"
+echo "  server:   $(go version -m /app/adaptixserver 2>/dev/null | awk '/axc2/{print $0}')"
 
 # --- Build src_beacon BOF prerequisites ---
 echo "Building src_beacon prerequisites (nasm, LLVM object files)..."
