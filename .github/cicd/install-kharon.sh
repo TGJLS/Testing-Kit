@@ -31,6 +31,33 @@ fi
 echo "Using Go: $(go version)"
 echo "GOEXPERIMENT: ${BINARY_GOEXP}"
 
+# --- Rebuild adaptixserver from source ---
+# Go plugin ABI compatibility requires every shared package to have the SAME
+# build ID, which is computed from: source content + dependency build IDs +
+# Go COMPILER BINARY HASH.  Even if the version string matches (go1.25.11),
+# a downloaded tarball may produce a different compiler hash than the binary
+# used inside the Docker image.
+# The only guaranteed fix: rebuild adaptixserver with OUR go binary, then
+# build the plugins with the same go binary → hashes are identical by
+# construction.
+AXC2_CLONE=/tmp/adaptixc2-src
+if [ ! -d "$AXC2_CLONE" ]; then
+    echo "Cloning TGJLS/AdaptixC2 for server rebuild..."
+    git clone --depth=1 https://github.com/TGJLS/AdaptixC2 "$AXC2_CLONE"
+else
+    echo "Using existing TGJLS/AdaptixC2 clone at ${AXC2_CLONE}"
+fi
+
+echo "Rebuilding /app/adaptixserver from ${AXC2_CLONE}/AdaptixServer ..."
+(
+    cd "${AXC2_CLONE}/AdaptixServer"
+    # ensure all module deps are present (runs offline if already cached)
+    go mod download 2>/dev/null || true
+    GOEXPERIMENT="${BINARY_GOEXP}" CGO_ENABLED=1 \
+        go build -ldflags="-s -w" -o /app/adaptixserver .
+    echo "Rebuilt: $(go version -m /app/adaptixserver 2>/dev/null | head -1)"
+)
+
 # --- Inspect adaptixserver binary ---
 # Print the full dependency list so CI logs tell us exactly what axc2 version
 # (and any replace directives) the running server was compiled with.
@@ -56,11 +83,7 @@ echo "Pinning axc2 to ${AXC2_VERSION}"
 #   plugin.Open: "plugin was built with a different version of package axc2"
 # We discover ALL go.mod files in the TGJLS/AdaptixC2 clone dynamically so
 # that any local axc2 module (pointed to by a replace directive) is included.
-ADAPTIX_SRC=/tmp/adaptixc2-src
-if [ ! -d "$ADAPTIX_SRC" ]; then
-    echo "Cloning AdaptixC2 source for go.work..."
-    git clone --depth=1 https://github.com/TGJLS/AdaptixC2 "$ADAPTIX_SRC"
-fi
+ADAPTIX_SRC="$AXC2_CLONE"
 
 echo "=== Modules found in AdaptixC2 clone (diagnostic only) ==="
 while IFS= read -r gomod_path; do
