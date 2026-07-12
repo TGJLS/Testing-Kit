@@ -8,6 +8,7 @@ KHARON_DIR=/app/userextenders/kharon
 NEED_PKGS=()
 command -v make    &>/dev/null || NEED_PKGS+=(make)
 command -v python3 &>/dev/null || NEED_PKGS+=(python3)
+command -v git     &>/dev/null || NEED_PKGS+=(git)
 if [ ${#NEED_PKGS[@]} -gt 0 ]; then
     apt-get update -qq
     apt-get install -y -qq "${NEED_PKGS[@]}"
@@ -31,13 +32,10 @@ fi
 echo "Using Go: $(go version)"
 echo "GOEXPERIMENT: ${BINARY_GOEXP}"
 
-# --- Inspect adaptixserver binary ---
-# Pin ALL dep versions from the server binary so every shared package in the
-# plugin has an IDENTICAL build ID to the one already compiled into the server.
-# The axc2 h1: hash alone is not sufficient — axc2's transitive deps (x/sys,
-# x/text, …) also affect build IDs, and any version delta causes:
-#   plugin.Open: "plugin was built with a different version of package X"
-echo "=== adaptixserver build info ==="
+# --- Read original server deps (before any rebuild) ---
+# Extract dep versions from the ORIGINAL binary so we can pin identical
+# versions when rebuilding adaptixserver AND when building Kharon plugins.
+echo "=== Original adaptixserver build info ==="
 SERVER_BUILD_INFO=$(go version -m /app/adaptixserver 2>/dev/null) || SERVER_BUILD_INFO=""
 if [ -z "$SERVER_BUILD_INFO" ]; then
     echo "(go version -m failed)"
@@ -49,6 +47,37 @@ fi
 SERVER_DEPS_FILE=/tmp/server_deps.txt
 echo "$SERVER_BUILD_INFO" | awk '/^\tdep\t/{print $2"@"$3}' > "$SERVER_DEPS_FILE"
 echo "Found $(wc -l < "$SERVER_DEPS_FILE" | tr -d ' ') dep modules in server binary"
+
+# --- Rebuild adaptixserver from source ---
+# Go plugin ABI compatibility requires every shared package (axc2, x/sys, …)
+# to have the SAME package build ID.  Build IDs are:
+#   hash(source_content + dep_build_ids + compiler_binary_hash)
+# Even with an identical version string (go1.25.11), a freshly-downloaded
+# tarball may have a different compiler binary than the one used inside the
+# Docker image, causing ALL package build IDs to diverge.
+#
+# Fix: rebuild /app/adaptixserver with OUR go binary using the ORIGINAL
+# dep versions.  Then build Kharon plugins with the same binary.
+# Both server and plugins share the same compiler hash → ABI is compatible.
+AXC2_CLONE=/tmp/adaptixc2-src
+if [ ! -d "$AXC2_CLONE" ]; then
+    echo "Cloning TGJLS/AdaptixC2 for server rebuild..."
+    git clone --depth=1 https://github.com/TGJLS/AdaptixC2 "$AXC2_CLONE"
+else
+    echo "Using existing TGJLS/AdaptixC2 clone at ${AXC2_CLONE}"
+fi
+
+echo "Rebuilding /app/adaptixserver from ${AXC2_CLONE}/AdaptixServer ..."
+(
+    cd "${AXC2_CLONE}/AdaptixServer"
+    while IFS= read -r dep; do
+        go mod edit -require "$dep" 2>/dev/null || true
+    done < "$SERVER_DEPS_FILE"
+    GONOSUMDB='*' go mod download 2>/dev/null || true
+    GOEXPERIMENT="${BINARY_GOEXP}" CGO_ENABLED=1 \
+        go build -ldflags="-s -w" -o /app/adaptixserver .
+    echo "Rebuilt: $(go version -m /app/adaptixserver 2>/dev/null | head -1)"
+)
 
 # Extract the exact axc2 version.  Fall back to v1.2.0 if not found.
 BINARY_AXC2=$(echo "$SERVER_BUILD_INFO" | \
