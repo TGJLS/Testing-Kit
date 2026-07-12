@@ -84,8 +84,10 @@ pin_server_deps() {
     (cd "$dir" && while IFS= read -r dep; do
         go mod edit -require "$dep" 2>/dev/null || true
     done < "$SERVER_DEPS_FILE")
-    # Download pinned modules to update go.sum before the build.
-    (cd "$dir" && GOWORK="${COMBINED_WORK}" GONOSUMDB='*' go mod download 2>/dev/null || true)
+    # go mod download is exempt from -mod=readonly and can update go.sum without
+    # the -mod=mod flag.  Run it visibly so CI logs show any download failures.
+    echo "Downloading pinned modules to update go.sum..."
+    (cd "$dir" && GOWORK="${COMBINED_WORK}" GONOSUMDB='*' go mod download 2>&1 || true)
 }
 
 # --- Build Kharon listener ---
@@ -95,7 +97,7 @@ cat "${KHARON_DIR}/listener_kharon_http/Makefile" 2>/dev/null || echo "(no Makef
 cd "${KHARON_DIR}/listener_kharon_http"
 go get "github.com/Adaptix-Framework/axc2@${AXC2_VERSION}"
 pin_server_deps "${KHARON_DIR}/listener_kharon_http"
-GOWORK="${COMBINED_WORK}" GOEXPERIMENT="${BINARY_GOEXP}" GONOSUMDB='*' GOFLAGS='-mod=mod' make all
+GOWORK="${COMBINED_WORK}" GOEXPERIMENT="${BINARY_GOEXP}" GONOSUMDB='*' make all
 
 # --- Patch pl_agent.go: add mask_sleep="none" -> KH_SLEEP_MASK=0 ---
 # Without this, the default sleep mask mode (3) uses obfuscation techniques
@@ -134,7 +136,7 @@ go get "github.com/Adaptix-Framework/axc2@${AXC2_VERSION}"
 pin_server_deps "${KHARON_DIR}/agent_kharon"
 rm -f dist/agent_kharon.so
 cd "${KHARON_DIR}/agent_kharon/src_server"
-GOWORK="${COMBINED_WORK}" GOEXPERIMENT="${BINARY_GOEXP}" GONOSUMDB='*' GOFLAGS='-mod=mod' \
+GOWORK="${COMBINED_WORK}" GOEXPERIMENT="${BINARY_GOEXP}" GONOSUMDB='*' \
     go build -buildmode=plugin -o "../dist/agent_kharon.so" .
 echo "Built: $(ls -sh ../dist/agent_kharon.so)"
 
