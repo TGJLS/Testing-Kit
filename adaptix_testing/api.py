@@ -410,6 +410,9 @@ def activate_extender(id: str, conn: sqlite3.Connection = Depends(get_conn)):
                     f"Active agent '{active_agent['agent_name']}' is not compatible with "
                     f"listener '{ext['listener_name']}'. Compatible listeners: {compat}"
                 ))
+        old_listener = _db.get_active_listener_extender(conn)
+        if old_listener and old_listener["id"] != id:
+            _pm.remove_extender_entries(ADAPTIX_PROFILE_PATH, old_listener["container_path"])
         config_rels = json.loads(ext.get("listener_config_rel_paths") or "[]")
         _pm.add_extender_entries(ADAPTIX_PROFILE_PATH, container_path, config_rels, [])
         _db.set_active_listener(conn, id)

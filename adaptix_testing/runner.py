@@ -169,9 +169,13 @@ def _resolve_listener_from_extender(extender: dict, cfg: dict) -> dict:
 def _resolve_agent_from_extender(extender: dict, cfg: dict, listener_instance_name: str) -> dict:
     """Build an agent profile dict from an active extender DB row."""
     schema = json.loads(extender["agent_schema"])
+    # Derive port_bind from the paired listener schema so network-source fields
+    # (e.g. callback_addresses) resolve to the correct port, not 0.
+    listener_schema = json.loads(extender.get("listener_schema") or "{}")
+    port_bind = int(listener_schema.get("port_bind", {}).get("value") or 0)
     config = {}
     for key, field in schema.items():
-        config[key] = _resolve_schema_value(key, field, cfg, 0)
+        config[key] = _resolve_schema_value(key, field, cfg, port_bind)
     agent_name = extender["agent_name"] or "extender"
     return {"agent": agent_name, "listener": listener_instance_name, "config": json.dumps(config)}
 
