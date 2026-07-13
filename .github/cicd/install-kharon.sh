@@ -9,6 +9,8 @@ NEED_PKGS=()
 command -v make    &>/dev/null || NEED_PKGS+=(make)
 command -v python3 &>/dev/null || NEED_PKGS+=(python3)
 command -v git     &>/dev/null || NEED_PKGS+=(git)
+command -v nasm    &>/dev/null || NEED_PKGS+=(nasm)
+command -v clang   &>/dev/null || NEED_PKGS+=(clang llvm)
 if [ ${#NEED_PKGS[@]} -gt 0 ]; then
     apt-get update -qq
     apt-get install -y -qq "${NEED_PKGS[@]}"
@@ -19,7 +21,9 @@ fi
 # as the main adaptixserver binary.  Read both from the binary.
 BINARY_GO=$(go version -m /app/adaptixserver 2>/dev/null | awk 'NR==1{print $2}') || BINARY_GO=""
 CURRENT_GO=$(go version 2>/dev/null | awk '{print $3}') || CURRENT_GO=""
-BINARY_GOEXP=$(go version -m /app/adaptixserver 2>/dev/null | awk 'NR==1{sub(/^.*X:/,""); print}') || BINARY_GOEXP=""
+# Only set GOEXPERIMENT when the binary actually carries X: flags; otherwise
+# passing the whole version line as GOEXPERIMENT would abort every go build.
+BINARY_GOEXP=$(go version -m /app/adaptixserver 2>/dev/null | awk 'NR==1 && /X:/{sub(/^.*X:/,""); print}') || BINARY_GOEXP=""
 
 if [ -n "$BINARY_GO" ] && [ "$BINARY_GO" != "$CURRENT_GO" ]; then
     echo "Toolchain mismatch: adaptixserver=${BINARY_GO}, container=${CURRENT_GO}"
@@ -30,20 +34,13 @@ if [ -n "$BINARY_GO" ] && [ "$BINARY_GO" != "$CURRENT_GO" ]; then
 fi
 
 echo "Using Go: $(go version)"
-echo "GOEXPERIMENT: ${BINARY_GOEXP}"
+[ -n "$BINARY_GOEXP" ] && echo "GOEXPERIMENT: ${BINARY_GOEXP}"
 
 # --- Read original server deps (before any rebuild) ---
 # Extract dep versions from the ORIGINAL binary so we can pin identical
 # versions when rebuilding adaptixserver AND when building Kharon plugins.
-echo "=== Original adaptixserver build info ==="
 SERVER_BUILD_INFO=$(go version -m /app/adaptixserver 2>/dev/null) || SERVER_BUILD_INFO=""
-if [ -z "$SERVER_BUILD_INFO" ]; then
-    echo "(go version -m failed)"
-else
-    echo "$SERVER_BUILD_INFO"
-fi
 
-# Extract all dep versions: "module/path@vX.Y.Z"
 SERVER_DEPS_FILE=/tmp/server_deps.txt
 echo "$SERVER_BUILD_INFO" | awk '/^\tdep\t/{print $2"@"$3}' > "$SERVER_DEPS_FILE"
 echo "Found $(wc -l < "$SERVER_DEPS_FILE" | tr -d ' ') dep modules in server binary"
@@ -73,7 +70,7 @@ echo "Rebuilding /app/adaptixserver from ${AXC2_CLONE}/AdaptixServer ..."
     while IFS= read -r dep; do
         go mod edit -require "$dep" 2>/dev/null || true
     done < "$SERVER_DEPS_FILE"
-    GONOSUMDB='*' go mod download 2>/dev/null || true
+    GONOSUMDB='*' go mod download 2>&1 || true
     GOEXPERIMENT="${BINARY_GOEXP}" CGO_ENABLED=1 \
         go build -ldflags="-s -w" -o /app/adaptixserver .
     echo "Rebuilt: $(go version -m /app/adaptixserver 2>/dev/null | head -1)"
@@ -82,7 +79,6 @@ echo "Rebuilding /app/adaptixserver from ${AXC2_CLONE}/AdaptixServer ..."
 # Extract the exact axc2 version.  Fall back to v1.2.0 if not found.
 BINARY_AXC2=$(echo "$SERVER_BUILD_INFO" | \
     awk '/github\.com\/Adaptix-Framework\/axc2/{print $3}') || BINARY_AXC2=""
-echo "axc2 in binary: ${BINARY_AXC2:-unknown}"
 if [[ "${BINARY_AXC2}" =~ ^v[0-9] ]]; then
     AXC2_VERSION="${BINARY_AXC2}"
 else
@@ -102,9 +98,6 @@ GO_WORK_VER="${BINARY_GO#go}"
     printf ')\n'
 } > "$COMBINED_WORK"
 
-echo "=== Generated go.work ==="
-cat "$COMBINED_WORK"
-
 # Pin ALL server dep versions into a module's go.mod so MVS selects identical
 # versions for every shared package.
 pin_server_deps() {
@@ -113,16 +106,12 @@ pin_server_deps() {
     (cd "$dir" && while IFS= read -r dep; do
         go mod edit -require "$dep" 2>/dev/null || true
     done < "$SERVER_DEPS_FILE")
-    # go mod download is exempt from -mod=readonly and can update go.sum without
-    # the -mod=mod flag.  Run it visibly so CI logs show any download failures.
     echo "Downloading pinned modules to update go.sum..."
     (cd "$dir" && GOWORK="${COMBINED_WORK}" GONOSUMDB='*' go mod download 2>&1 || true)
 }
 
 # --- Build Kharon listener ---
 echo "Building Kharon listener..."
-echo "=== listener_kharon_http/Makefile ==="
-cat "${KHARON_DIR}/listener_kharon_http/Makefile" 2>/dev/null || echo "(no Makefile)"
 cd "${KHARON_DIR}/listener_kharon_http"
 go get "github.com/Adaptix-Framework/axc2@${AXC2_VERSION}"
 pin_server_deps "${KHARON_DIR}/listener_kharon_http"
@@ -155,7 +144,8 @@ if old in content:
 elif 'case \"none\":' in content:
     print('pl_agent.go already patched')
 else:
-    print('WARNING: patch target not found in pl_agent.go', file=sys.stderr)
+    print('ERROR: patch target not found in pl_agent.go — upstream may have changed the switch structure', file=sys.stderr)
+    sys.exit(1)
 " "$AGENT_GO"
 
 # --- Build Kharon agent plugin ---
@@ -169,32 +159,8 @@ GOWORK="${COMBINED_WORK}" GOEXPERIMENT="${BINARY_GOEXP}" GONOSUMDB='*' \
     go build -buildmode=plugin -o "../dist/agent_kharon.so" .
 echo "Built: $(ls -sh ../dist/agent_kharon.so)"
 
-echo "=== axc2 version in built plugins ==="
-go version -m "${KHARON_DIR}/listener_kharon_http/dist/listener_kharon_http.so" 2>/dev/null | \
-    awk '/axc2/{print "  listener: "$0}' || echo "  listener: (read failed)"
-go version -m "${KHARON_DIR}/agent_kharon/dist/agent_kharon.so" 2>/dev/null | \
-    awk '/axc2/{print "  agent:    "$0}' || echo "  agent: (read failed)"
-echo "  server:   $(echo "$SERVER_BUILD_INFO" | awk '/axc2/{print $0}')"
-
-# --- Diagnostic: compare key dep versions across server and plugins ---
-echo "=== Key dep versions in built artifacts ==="
-for artifact in \
-    "/app/adaptixserver" \
-    "${KHARON_DIR}/listener_kharon_http/dist/listener_kharon_http.so" \
-    "${KHARON_DIR}/agent_kharon/dist/agent_kharon.so"
-do
-    echo "  $(basename "$artifact"):"
-    go version -m "$artifact" 2>/dev/null | \
-        awk '/golang\.org\/x\/sys|golang\.org\/x\/text|Adaptix-Framework\/axc2/{printf "    %s\n", $0}' \
-        || echo "    (read failed)"
-done
-
 # --- Build src_beacon BOF prerequisites ---
 echo "Building src_beacon prerequisites (nasm, LLVM object files)..."
-if ! command -v nasm &>/dev/null || ! command -v clang &>/dev/null; then
-    apt-get update -qq
-    apt-get install -y -qq nasm clang llvm
-fi
 cd "${KHARON_DIR}/agent_kharon/src_beacon"
 make prebuild-x64
 
@@ -242,7 +208,6 @@ for dir in src_beacon src_loader src_core; do
     link="${DIST_KH}/${dir}"
     if [ ! -L "$link" ]; then
         ln -sf "$target" "$link"
-        echo "Symlink: ${link} -> ${target}"
     fi
 done
 
@@ -254,7 +219,6 @@ if [ ! -f "$CSTDINT" ]; then
 #include <stdint.h>
 #include <stddef.h>
 SHIM
-    echo "Created cstdint shim at ${CSTDINT}"
 fi
 
 echo "Kharon build complete."
