@@ -183,7 +183,7 @@ func downloadFiles() {
 	}
 	fmt.Println("✓ docker-compose.yml downloaded")
 
-	for _, f := range []string{"config/config.yaml", ".github/cicd/tasks.yaml"} {
+	for _, f := range []string{"adaptix_testing/config.yaml", ".github/cicd/tasks.yaml"} {
 		if _, err := os.Stat(f); err == nil {
 			fmt.Printf("⚠  %s already exists — skipping\n", f)
 			continue

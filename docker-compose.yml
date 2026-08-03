@@ -23,7 +23,7 @@ services:
       ci-net:
         ipv4_address: 172.28.0.10
     volumes:
-      - ./adaptixc2/dist/profile.yaml:/app/profile.yaml:rw
+      - ./adaptixc2/profile.yaml:/app/profile.yaml:rw
       - ./adaptixc2/dist/extenders:/app/userextenders:rw
     restart: unless-stopped
 
@@ -39,11 +39,11 @@ services:
       EXTENDERS_HOST_PATH: /app/adaptixc2/extenders
       EXTENDERS_CONTAINER_PATH: /app/userextenders
     volumes:
-      - ./config/config.yaml:/app/config.yaml:ro
+      - ./adaptix_testing/config.yaml:/app/config.yaml:ro
       - ./.github/cicd/tasks.yaml:/app/default_tasks.yaml:ro
       - ./ssh/id_test:/run/secrets/ssh_key:ro
       - testing-kit-db:/data
-      - ./adaptixc2/dist/profile.yaml:/app/adaptixc2/profile.yaml:rw
+      - ./adaptixc2/profile.yaml:/app/adaptixc2/profile.yaml:rw
       - ./adaptixc2/dist/extenders:/app/adaptixc2/extenders:rw
     restart: unless-stopped
 

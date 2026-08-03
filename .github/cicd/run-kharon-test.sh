@@ -3,7 +3,7 @@
 # Usage: ./run-kharon-test.sh [--no-build] [--no-teardown]
 set -euo pipefail
 
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/../.."
 
 BUILD=true
 TEARDOWN=true
