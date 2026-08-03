@@ -29,3 +29,6 @@ testing-kit-cli
 testing-kit-cli.tar.gz
 !.github/cicd/tasks.yaml
 adaptixc2/dist/extenders/
+
+# Git worktrees
+.worktrees/
