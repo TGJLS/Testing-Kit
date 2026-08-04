@@ -21,10 +21,27 @@ fi
 # match automatically. GOEXPERIMENT is set as an env var in the image.
 echo "Using Go: $(go version)"
 [ -n "${GOEXPERIMENT:-}" ] && echo "GOEXPERIMENT: ${GOEXPERIMENT}"
+BINARY_GOEXP="${GOEXPERIMENT:-}"
+
+# --- Rebuild adaptixserver from bundled source ---
+# Go plugin ABI requires every shared package to have the SAME build ID:
+#   hash(source_content + dep_build_ids + compiler_binary_hash)
+# Same Go binary is necessary but not sufficient — the transitive deps of axc2
+# must also be compiled with the same dep graph.  Rebuilding adaptixserver here
+# populates the Go build cache with all shared packages compiled by OUR binary.
+# Kharon then reuses that cache and gets identical build IDs automatically.
+AXC2_SRC=/app/adaptixc2-src/AdaptixServer
+echo "Rebuilding adaptixserver from bundled source..."
+(
+    cd "$AXC2_SRC"
+    GONOSUMDB='*' go mod download 2>&1 | grep -v "^$" || true
+    GOEXPERIMENT="${BINARY_GOEXP}" CGO_ENABLED=1 \
+        go build -buildvcs=false -ldflags="-s -w" -o /app/adaptixserver .
+    echo "Rebuilt: $(go version -m /app/adaptixserver | head -1)"
+)
 
 # --- Read server build info for dep pinning ---
 SERVER_BUILD_INFO=$(go version -m /app/adaptixserver 2>/dev/null) || SERVER_BUILD_INFO=""
-BINARY_GOEXP="${GOEXPERIMENT:-}"
 
 SERVER_DEPS_FILE=/tmp/server_deps.txt
 echo "$SERVER_BUILD_INFO" | awk '/^\tdep\t/{print $2"@"$3}' > "$SERVER_DEPS_FILE"
