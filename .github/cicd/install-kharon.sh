@@ -43,7 +43,7 @@ echo "Pinning axc2 to ${AXC2_VERSION}"
 # --- Build combined go.work ---
 # Include ONLY Kharon modules so AdaptixC2 HEAD doesn't bump deps via MVS.
 COMBINED_WORK=/tmp/combined.work
-GO_WORK_VER="${BINARY_GO#go}"
+GO_WORK_VER=$(go version | awk '{print $3}' | sed 's/go//')
 [ -z "$GO_WORK_VER" ] && GO_WORK_VER="1.25"
 {
     printf 'go %s\n\nuse (\n' "${GO_WORK_VER}"
