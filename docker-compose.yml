@@ -18,7 +18,7 @@ services:
 
   adaptixc2:
     container_name: adaptixc2
-    image: ghcr.io/tgjls/adaptixc2:1.3
+    image: ghcr.io/tgjls/adaptixc2:1.2
     networks:
       ci-net:
         ipv4_address: 172.28.0.10
