@@ -23,31 +23,10 @@ echo "Using Go: $(go version)"
 [ -n "${GOEXPERIMENT:-}" ] && echo "GOEXPERIMENT: ${GOEXPERIMENT}"
 BINARY_GOEXP="${GOEXPERIMENT:-}"
 
-# --- Rebuild adaptixserver from bundled source ---
-# Go plugin ABI requires every shared package to have the SAME build ID:
-#   hash(source_content + dep_build_ids + compiler_binary_hash)
-# Same Go binary is necessary but not sufficient — the transitive deps of axc2
-# must also be compiled with the same dep graph.  Rebuilding adaptixserver here
-# populates the Go build cache with all shared packages compiled by OUR binary.
-# Kharon then reuses that cache and gets identical build IDs automatically.
-AXC2_SRC=/app/adaptixc2-src/AdaptixServer
-echo "Rebuilding adaptixserver from bundled source..."
-(
-    cd "$AXC2_SRC"
-    GONOSUMDB='*' go mod download 2>&1 | grep -v "^$" || true
-    GOEXPERIMENT="${BINARY_GOEXP}" CGO_ENABLED=1 \
-        go build -buildvcs=false -ldflags="-s -w" -o /app/adaptixserver .
-    echo "Rebuilt: $(go version -m /app/adaptixserver | head -1)"
-)
-
-# --- Read server build info for dep pinning ---
+# --- Read server build info ---
 SERVER_BUILD_INFO=$(go version -m /app/adaptixserver 2>/dev/null) || SERVER_BUILD_INFO=""
 
-SERVER_DEPS_FILE=/tmp/server_deps.txt
-echo "$SERVER_BUILD_INFO" | awk '/^\tdep\t/{print $2"@"$3}' > "$SERVER_DEPS_FILE"
-echo "Found $(wc -l < "$SERVER_DEPS_FILE" | tr -d ' ') dep modules in server binary"
-
-# Extract the exact axc2 version.  Fall back to v1.2.0 if not found.
+# Extract axc2 version from server binary.  Fall back to v1.2.0 if not found.
 BINARY_AXC2=$(echo "$SERVER_BUILD_INFO" | \
     awk '/github\.com\/Adaptix-Framework\/axc2/{print $3}') || BINARY_AXC2=""
 if [[ "${BINARY_AXC2}" =~ ^v[0-9] ]]; then
@@ -57,36 +36,23 @@ else
 fi
 echo "Pinning axc2 to ${AXC2_VERSION}"
 
-# --- Build combined go.work ---
-# Include ONLY Kharon modules so AdaptixC2 HEAD doesn't bump deps via MVS.
-COMBINED_WORK=/tmp/combined.work
-GO_WORK_VER=$(go version | awk '{print $3}' | sed 's/go//')
-[ -z "$GO_WORK_VER" ] && GO_WORK_VER="1.25"
-{
-    printf 'go %s\n\nuse (\n' "${GO_WORK_VER}"
-    printf '    %s\n' "${KHARON_DIR}/listener_kharon_http"
-    printf '    %s\n' "${KHARON_DIR}/agent_kharon"
-    printf ')\n'
-} > "$COMBINED_WORK"
-
-# Pin ALL server dep versions into a module's go.mod so MVS selects identical
-# versions for every shared package.
-pin_server_deps() {
-    local dir="$1"
-    echo "Pinning server dep versions in $(basename "$dir")..."
-    (cd "$dir" && while IFS= read -r dep; do
-        go mod edit -require "$dep" 2>/dev/null || true
-    done < "$SERVER_DEPS_FILE")
-    echo "Downloading pinned modules to update go.sum..."
-    (cd "$dir" && GOWORK="${COMBINED_WORK}" GONOSUMDB='*' go mod download 2>&1 || true)
-}
+# --- Register Kharon in AdaptixServer's go.work ---
+# Building from within the same workspace as adaptixserver ensures Kharon
+# plugins share the EXACT same dep graph (same MVS resolution).  The image
+# also bundles the Go build cache from the server build stage, so Go finds
+# the pre-compiled axc2 package and reuses it instead of recompiling.
+# Reusing the cached .a means the build ID embedded in the plugin matches
+# the one already loaded by adaptixserver → plugin.Open succeeds.
+AXC2_SRC=/app/adaptixc2-src/AdaptixServer
+AXC2_GOWORK="${AXC2_SRC}/go.work"
+cd "${AXC2_SRC}"
+go work use "${KHARON_DIR}/listener_kharon_http"
+go work use "${KHARON_DIR}/agent_kharon"
 
 # --- Build Kharon listener ---
 echo "Building Kharon listener..."
 cd "${KHARON_DIR}/listener_kharon_http"
-go get "github.com/Adaptix-Framework/axc2@${AXC2_VERSION}"
-pin_server_deps "${KHARON_DIR}/listener_kharon_http"
-GOWORK="${COMBINED_WORK}" GOEXPERIMENT="${BINARY_GOEXP}" GONOSUMDB='*' make all
+GOWORK="${AXC2_GOWORK}" GOEXPERIMENT="${BINARY_GOEXP}" GONOSUMDB='*' make all
 
 # --- Patch pl_agent.go: add mask_sleep="none" -> KH_SLEEP_MASK=0 ---
 # Without this, the default sleep mask mode (3) uses obfuscation techniques
@@ -121,12 +87,9 @@ else:
 
 # --- Build Kharon agent plugin ---
 echo "Building Kharon agent plugin..."
-cd "${KHARON_DIR}/agent_kharon"
-go get "github.com/Adaptix-Framework/axc2@${AXC2_VERSION}"
-pin_server_deps "${KHARON_DIR}/agent_kharon"
-rm -f dist/agent_kharon.so
+rm -f "${KHARON_DIR}/agent_kharon/dist/agent_kharon.so"
 cd "${KHARON_DIR}/agent_kharon/src_server"
-GOWORK="${COMBINED_WORK}" GOEXPERIMENT="${BINARY_GOEXP}" GONOSUMDB='*' \
+GOWORK="${AXC2_GOWORK}" GOEXPERIMENT="${BINARY_GOEXP}" GONOSUMDB='*' \
     go build -buildmode=plugin -o "../dist/agent_kharon.so" .
 echo "Built: $(ls -sh ../dist/agent_kharon.so)"
 
