@@ -1,50 +1,71 @@
 # Managed by Testing-Kit — do not edit manually
-Teamserver:
-  interface: "0.0.0.0"
-  port: 4321
-  endpoint: "/endpoint"
-  password: "pass"
-  only_password: true
-  cert: "server.rsa.crt"
-  key: "server.rsa.key"
-  extenders:
-    - "extenders/beacon_listener_http/config.yaml"
-    - "extenders/beacon_listener_smb/config.yaml"
-    - "extenders/beacon_listener_tcp/config.yaml"
-    - "extenders/beacon_listener_dns/config.yaml"
-    - "extenders/beacon_agent/config.yaml"
-    - "extenders/gopher_listener_tcp/config.yaml"
-    - "extenders/gopher_agent/config.yaml"
-  axscripts: []
-  access_token_live_hours: 12
-  refresh_token_live_hours: 168
-
 HttpServer:
   error:
-    status: 404
     headers:
-      Content-Type: "text/html; charset=UTF-8"
-      Server: "AdaptixC2"
-      Adaptix-Version: "v1.2"
-    page: "404page.html"
+      Adaptix-Version: v1.2
+      Content-Type: text/html; charset=UTF-8
+      Server: AdaptixC2
+    page: 404page.html
+    status: 404
   http:
+    disable_keep_alives: false
+    enable_http2: true
+    idle_timeout_sec: 0
     max_header_bytes: 8192
     read_header_timeout_sec: 0
     read_timeout_sec: 0
-    write_timeout_sec: 0
-    idle_timeout_sec: 0
+    request_timeout_message: 504 Gateway Timeout
     request_timeout_sec: 300
-    request_timeout_message: "504 Gateway Timeout"
-    disable_keep_alives: false
-    enable_http2: true
+    write_timeout_sec: 0
   tls:
-    min_version: "TLS1.2"
-    max_version: "TLS1.3"
-    prefer_server_cipher_suites: false
     cipher_suites:
-      - "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"
-      - "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"
-      - "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256"
-      - "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"
-      - "TLS_RSA_WITH_AES_128_GCM_SHA256"
-      - "TLS_RSA_WITH_AES_256_GCM_SHA384"
+    - TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+    - TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+    - TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+    - TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+    - TLS_RSA_WITH_AES_128_GCM_SHA256
+    - TLS_RSA_WITH_AES_256_GCM_SHA384
+    max_version: TLS1.3
+    min_version: TLS1.2
+    prefer_server_cipher_suites: false
+Teamserver:
+  access_token_live_hours: 12
+  axscripts:
+  - /app/userextenders/extension-kit/AD-BOF/ADCS-BOF/ADCS.axs
+  - /app/userextenders/extension-kit/AD-BOF/Kerbeus-BOF/kerbeus.axs
+  - /app/userextenders/extension-kit/AD-BOF/LDAP-BOF/LDAP.axs
+  - /app/userextenders/extension-kit/AD-BOF/RelayInformer/RelayInformer.axs
+  - /app/userextenders/extension-kit/AD-BOF/SQL-BOF/SQL.axs
+  - /app/userextenders/extension-kit/AD-BOF/ad-services.axs
+  - /app/userextenders/extension-kit/AD-BOF/ad.axs
+  - /app/userextenders/extension-kit/Creds-BOF/cookie-monster/cookie-monster.axs
+  - /app/userextenders/extension-kit/Creds-BOF/creds.axs
+  - /app/userextenders/extension-kit/Creds-BOF/nanodump/nanodump.axs
+  - /app/userextenders/extension-kit/Elevation-BOF/elevate.axs
+  - /app/userextenders/extension-kit/Execution-BOF/No-Consolation/no_consolation.axs
+  - /app/userextenders/extension-kit/Execution-BOF/execution.axs
+  - /app/userextenders/extension-kit/Injection-BOF/inject.axs
+  - /app/userextenders/extension-kit/LateralMovement-BOF/lateral.axs
+  - /app/userextenders/extension-kit/Postex-BOF/postex.axs
+  - /app/userextenders/extension-kit/Process-BOF/process.axs
+  - /app/userextenders/extension-kit/SAL-BOF/sal.axs
+  - /app/userextenders/extension-kit/SAR-BOF/sar.axs
+  - /app/userextenders/extension-kit/extension-kit.axs
+  cert: server.rsa.crt
+  endpoint: /endpoint
+  extenders:
+  - extenders/beacon_listener_http/config.yaml
+  - extenders/beacon_listener_smb/config.yaml
+  - extenders/beacon_listener_tcp/config.yaml
+  - extenders/beacon_listener_dns/config.yaml
+  - extenders/beacon_agent/config.yaml
+  - extenders/gopher_listener_tcp/config.yaml
+  - extenders/gopher_agent/config.yaml
+  - /app/userextenders/kharon/listener_kharon_http/dist/config.yaml
+  - /app/userextenders/kharon/agent_kharon/dist/config.yaml
+  interface: 0.0.0.0
+  key: server.rsa.key
+  only_password: true
+  password: pass
+  port: 4321
+  refresh_token_live_hours: 168

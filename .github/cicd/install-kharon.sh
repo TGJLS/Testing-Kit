@@ -16,65 +16,19 @@ if [ ${#NEED_PKGS[@]} -gt 0 ]; then
     apt-get install -y -qq "${NEED_PKGS[@]}"
 fi
 
-# --- Go toolchain ---
-# Go plugins require the EXACT same Go toolchain version AND GOEXPERIMENT flags
-# as the main adaptixserver binary.  Read both from the binary.
-BINARY_GO=$(go version -m /app/adaptixserver 2>/dev/null | awk 'NR==1{print $2}') || BINARY_GO=""
-CURRENT_GO=$(go version 2>/dev/null | awk '{print $3}') || CURRENT_GO=""
-# Only set GOEXPERIMENT when the binary actually carries X: flags; otherwise
-# passing the whole version line as GOEXPERIMENT would abort every go build.
-BINARY_GOEXP=$(go version -m /app/adaptixserver 2>/dev/null | awk 'NR==1 && /X:/{sub(/^.*X:/,""); print}') || BINARY_GOEXP=""
-
-if [ -n "$BINARY_GO" ] && [ "$BINARY_GO" != "$CURRENT_GO" ]; then
-    echo "Toolchain mismatch: adaptixserver=${BINARY_GO}, container=${CURRENT_GO}"
-    echo "Installing ${BINARY_GO} at /usr/local/go..."
-    wget -qO- "https://dl.google.com/go/${BINARY_GO}.linux-amd64.tar.gz" | \
-        tar -xz -C /usr/local/ --overwrite
-    echo "Now using: $(go version)"
-fi
-
+# The container's Go binary is the same one that compiled adaptixserver
+# (copied from the build stage in the Dockerfile), so compiler binary hashes
+# match automatically. GOEXPERIMENT is set as an env var in the image.
 echo "Using Go: $(go version)"
-[ -n "$BINARY_GOEXP" ] && echo "GOEXPERIMENT: ${BINARY_GOEXP}"
+[ -n "${GOEXPERIMENT:-}" ] && echo "GOEXPERIMENT: ${GOEXPERIMENT}"
 
-# --- Read original server deps (before any rebuild) ---
-# Extract dep versions from the ORIGINAL binary so we can pin identical
-# versions when rebuilding adaptixserver AND when building Kharon plugins.
+# --- Read server build info for dep pinning ---
 SERVER_BUILD_INFO=$(go version -m /app/adaptixserver 2>/dev/null) || SERVER_BUILD_INFO=""
+BINARY_GOEXP="${GOEXPERIMENT:-}"
 
 SERVER_DEPS_FILE=/tmp/server_deps.txt
 echo "$SERVER_BUILD_INFO" | awk '/^\tdep\t/{print $2"@"$3}' > "$SERVER_DEPS_FILE"
 echo "Found $(wc -l < "$SERVER_DEPS_FILE" | tr -d ' ') dep modules in server binary"
-
-# --- Rebuild adaptixserver from source ---
-# Go plugin ABI compatibility requires every shared package (axc2, x/sys, …)
-# to have the SAME package build ID.  Build IDs are:
-#   hash(source_content + dep_build_ids + compiler_binary_hash)
-# Even with an identical version string (go1.25.11), a freshly-downloaded
-# tarball may have a different compiler binary than the one used inside the
-# Docker image, causing ALL package build IDs to diverge.
-#
-# Fix: rebuild /app/adaptixserver with OUR go binary using the ORIGINAL
-# dep versions.  Then build Kharon plugins with the same binary.
-# Both server and plugins share the same compiler hash → ABI is compatible.
-AXC2_CLONE=/tmp/adaptixc2-src
-if [ ! -d "$AXC2_CLONE" ]; then
-    echo "Cloning TGJLS/AdaptixC2 for server rebuild..."
-    git clone --depth=1 https://github.com/TGJLS/AdaptixC2 "$AXC2_CLONE"
-else
-    echo "Using existing TGJLS/AdaptixC2 clone at ${AXC2_CLONE}"
-fi
-
-echo "Rebuilding /app/adaptixserver from ${AXC2_CLONE}/AdaptixServer ..."
-(
-    cd "${AXC2_CLONE}/AdaptixServer"
-    while IFS= read -r dep; do
-        go mod edit -require "$dep" 2>/dev/null || true
-    done < "$SERVER_DEPS_FILE"
-    GONOSUMDB='*' go mod download 2>&1 || true
-    GOEXPERIMENT="${BINARY_GOEXP}" CGO_ENABLED=1 \
-        go build -ldflags="-s -w" -o /app/adaptixserver .
-    echo "Rebuilt: $(go version -m /app/adaptixserver 2>/dev/null | head -1)"
-)
 
 # Extract the exact axc2 version.  Fall back to v1.2.0 if not found.
 BINARY_AXC2=$(echo "$SERVER_BUILD_INFO" | \
